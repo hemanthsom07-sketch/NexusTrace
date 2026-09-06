@@ -1,24 +1,23 @@
 """
-api/routes.py -- Phase 10.1 & Cyber Intelligence Extension
+api/routes.py -- Phase 10.1
 
-Endpoints:
-  POST /api/pipeline/run          -- re-run pipeline with sample files (or custom paths)
-  POST /api/pipeline/upload       -- upload CSV & JSON directly from the browser
-  GET  /api/leads                 -- ranked list of investigation leads
-  GET  /api/leads/{wallet}        -- one lead's full detail with GeoIP
-  GET  /api/graph                 -- complete entity graph
-  GET  /api/graph/subgraph/{id}   -- ego-network subgraph around an entity (hops=1 or 2)
-  GET  /api/stats                 -- executive intelligence summary metrics
-  GET  /api/transactions          -- all transactions ledger
-  GET  /api/transactions/{txid}   -- single transaction detail with correlation evidence
+Exactly 3 endpoints for the prototype, deliberately kept small:
+  GET /api/leads              -- ranked list of investigation leads
+  GET /api/leads/{wallet}     -- one lead's full detail
+  GET /api/graph              -- nodes/edges for the loaded dataset
+  POST /api/pipeline/run      -- re-run the pipeline against the sample data
+                                  (a convenience endpoint for the demo --
+                                  in a real deployment this would take an
+                                  uploaded file instead)
+
+These routes only call functions that were already tested via
+scripts/run_pipeline.py -- they don't contain new logic of their own.
 """
-import io
-import os
-import time
-from fastapi import APIRouter, HTTPException, UploadFile, File, Query
-from typing import Optional
+import ipaddress
 
-from app.config import DEFAULT_SAMPLE_NETWORK_CSV, DEFAULT_SAMPLE_TX_JSON, DATA_DIR
+from fastapi import APIRouter, HTTPException
+
+from app.config import DEFAULT_SAMPLE_NETWORK_CSV, DEFAULT_SAMPLE_TX_JSON
 from app.ingestion.parsers import parse_csv, parse_json
 from app.ingestion.normalize import normalize_network_events, normalize_transactions
 from app.correlation.matcher import correlate
@@ -33,8 +32,23 @@ from app.storage import db
 router = APIRouter()
 
 
-def _process_and_persist(raw_network: list[dict], raw_tx: list[dict]) -> dict:
-    """Core pipeline execution shared by run and upload endpoints."""
+@router.post("/api/pipeline/run")
+def run_pipeline(network_csv: str = None, tx_json: str = None):
+    """
+    Runs the full pipeline against sample data (or the given file paths)
+    and persists the results to SQLite. Call this once after starting the
+    server (or whenever new data should be loaded) before hitting the
+    /api/leads or /api/graph endpoints.
+    """
+    network_csv = network_csv or DEFAULT_SAMPLE_NETWORK_CSV
+    tx_json = tx_json or DEFAULT_SAMPLE_TX_JSON
+
+    try:
+        raw_network = parse_csv(network_csv)
+        raw_tx = parse_json(tx_json)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
     events, skipped_events = normalize_network_events(raw_network)
     transactions, skipped_tx = normalize_transactions(raw_tx)
 
@@ -47,82 +61,66 @@ def _process_and_persist(raw_network: list[dict], raw_tx: list[dict]) -> dict:
     scored_df = score_anomalies(feature_df)
     reasons = generate_reasons(scored_df)
 
-    # Performance optimization: index transactions by txid (eliminates O(N) linear scans)
-    tx_by_id = {tx.txid: tx for tx in transactions}
-
-    # Map transactions and IPs per wallet
+    # figure out related txids/ips per wallet for the lead detail view
     tx_by_wallet: dict[str, set] = {}
     for tx in transactions:
         for addr in tx.input_addresses + tx.output_addresses:
             tx_by_wallet.setdefault(addr, set()).add(tx.txid)
 
     ip_by_wallet: dict[str, set] = {}
-    tx_links_map: dict[str, list] = {}
     for link in links:
-        tx_links_map.setdefault(link.txid, []).append(link)
         ev = events_by_id.get(link.network_event_id)
         if not ev:
             continue
-        tx = tx_by_id.get(link.txid)
+        tx = next((t for t in transactions if t.txid == link.txid), None)
         if not tx:
             continue
         for addr in tx.input_addresses + tx.output_addresses:
             ip_by_wallet.setdefault(addr, set()).add(ev.src_ip)
 
-    # Score lookup for nodes
-    score_by_wallet = {row["wallet"]: float(row["anomaly_score"]) for _, row in scored_df.iterrows()}
-
-    # Construct leads with GeoIP enrichment
     leads = []
-    high_count = 0
-    med_count = 0
-    low_count = 0
-
+    wallet_risk: dict[str, dict] = {}
     for _, row in scored_df.iterrows():
         wallet = row["wallet"]
-        sev = severity_for(row["anomaly_score"])
-        if sev == "HIGH":
-            high_count += 1
-        elif sev == "MEDIUM":
-            med_count += 1
-        else:
-            low_count += 1
-
-        wallet_ips = sorted(ip_by_wallet.get(wallet, []))
+        anomaly_score = round(float(row["anomaly_score"]), 4)
+        severity = severity_for(row["anomaly_score"])
+        wallet_risk[wallet] = {"anomaly_score": anomaly_score, "severity": severity}
         leads.append({
             "wallet": wallet,
-            "anomaly_score": round(float(row["anomaly_score"]), 4),
-            "severity": sev,
+            "anomaly_score": anomaly_score,
+            "severity": severity,
             "reasons": reasons.get(wallet, []),
             "related_txids": sorted(tx_by_wallet.get(wallet, [])),
-            "related_ips": wallet_ips,
-            "related_ips_details": [lookup_ip(ip) for ip in wallet_ips],
+            "related_ips": sorted(ip_by_wallet.get(wallet, [])),
             "feature_snapshot": {
                 k: v for k, v in row.items()
                 if k not in ("wallet", "raw_score", "anomaly_score")
             },
         })
 
-    # Prepare transaction records
+    # Per-transaction detail + correlation evidence, built from data the
+    # existing correlation/confidence logic already computed above -- no
+    # new scoring or matching logic, just reshaped for the API to serve.
+    evidence_by_txid: dict[str, list] = {}
+    for link in links:
+        ev = events_by_id.get(link.network_event_id)
+        if not ev:
+            continue
+        evidence_by_txid.setdefault(link.txid, []).append({
+            "ip": ev.src_ip,
+            "port": ev.src_port,
+            "time_delta_seconds": link.time_delta_seconds,
+            "confidence": link.confidence,
+            "evidence": link.evidence,
+        })
+
     tx_records = []
-    total_out_btc = 0.0
-    total_in_btc = 0.0
-
     for tx in transactions:
-        tx_corr_links = tx_links_map.get(tx.txid, [])
-        corr_ips = []
-        for l in tx_corr_links:
-            ev = events_by_id.get(l.network_event_id)
-            if ev and ev.src_ip not in corr_ips:
-                corr_ips.append(ev.src_ip)
-
-        c_max = max([l.confidence or 0.0 for l in tx_corr_links], default=0.0)
-        evidence_list = [l.evidence for l in tx_corr_links if l.evidence]
-        out_sum = sum(tx.output_amounts or [0.0])
-        in_sum = sum(tx.input_amounts or [0.0])
-        total_out_btc += out_sum
-        total_in_btc += in_sum
-
+        tx_evidence = sorted(
+            evidence_by_txid.get(tx.txid, []),
+            key=lambda e: (e["confidence"] or 0.0), reverse=True,
+        )
+        primary = tx_evidence[0] if tx_evidence else None
         tx_records.append({
             "txid": tx.txid,
             "timestamp": tx.timestamp,
@@ -132,136 +130,21 @@ def _process_and_persist(raw_network: list[dict], raw_tx: list[dict]) -> dict:
             "output_amounts": tx.output_amounts,
             "fee": tx.fee,
             "script_type": tx.script_type,
-            "correlated_ips": corr_ips,
-            "confidence_max": round(c_max, 3),
-            "evidence": evidence_list,
+            "btc_amount": round(sum(tx.output_amounts), 8) if tx.output_amounts else 0.0,
+            "correlated_ip": primary["ip"] if primary else None,
+            "confidence": primary["confidence"] if primary else None,
+            "correlation_evidence": tx_evidence,
         })
 
-    # Enrich graph nodes with metadata (scores for wallets, geoip for ips)
-    graph_dict = to_json_graph(g)
-    for node in graph_dict.get("nodes", []):
-        nid = node.get("id", "")
-        if nid.startswith("wallet:"):
-            w_addr = nid.replace("wallet:", "")
-            node["anomaly_score"] = round(score_by_wallet.get(w_addr, 0.0), 4)
-            node["severity"] = severity_for(score_by_wallet.get(w_addr, 0.0))
-        elif nid.startswith("ip:"):
-            ip_addr = nid.replace("ip:", "")
-            geo = lookup_ip(ip_addr)
-            node["country"] = geo.get("country")
-            node["city"] = geo.get("city")
-            node["asn"] = geo.get("asn")
-            node["org"] = geo.get("org")
-            node["is_private"] = geo.get("is_private")
-
-    # Persist all data
     db.replace_leads(leads)
-    db.replace_transactions(tx_records)
-    db.save_graph(graph_dict)
-
-    summary_stats = {
-        "status": "ok",
-        "events_ingested": len(events),
-        "events_skipped": len(skipped_events),
-        "transactions_ingested": len(transactions),
-        "transactions_skipped": len(skipped_tx),
-        "links_found": len(links),
-        "leads_generated": len(leads),
-        "wallets_count": len(leads),
-        "high_risk_count": high_count,
-        "medium_risk_count": med_count,
-        "low_risk_count": low_count,
-        "total_out_btc": round(total_out_btc, 4),
-        "total_in_btc": round(total_in_btc, 4),
-        "graph_nodes": len(graph_dict.get("nodes", [])),
-        "graph_edges": len(graph_dict.get("edges", [])),
-        "last_updated": time.time(),
-    }
-    db.save_pipeline_meta(summary_stats)
-    return summary_stats
-
-
-@router.post("/api/pipeline/run")
-def run_pipeline(network_csv: str = None, tx_json: str = None):
-    """Runs pipeline against sample data or specified local files."""
-    network_csv = network_csv or DEFAULT_SAMPLE_NETWORK_CSV
-    tx_json = tx_json or DEFAULT_SAMPLE_TX_JSON
-
-    try:
-        raw_network = parse_csv(network_csv)
-        raw_tx = parse_json(tx_json)
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-    return _process_and_persist(raw_network, raw_tx)
-
-
-@router.post("/api/pipeline/upload")
-async def upload_pipeline(
-    network_csv: Optional[UploadFile] = File(None),
-    tx_json: Optional[UploadFile] = File(None),
-):
-    """Accepts uploaded CSV and JSON files directly from the browser."""
-    import csv, json
-
-    raw_network = None
-    raw_tx = None
-
-    if network_csv and network_csv.filename:
-        content = await network_csv.read()
-        text = content.decode("utf-8", errors="replace")
-        reader = csv.DictReader(io.StringIO(text))
-        raw_network = []
-        for i, row in enumerate(reader):
-            row["_source_row"] = i
-            raw_network.append(row)
-
-    if tx_json and tx_json.filename:
-        content = await tx_json.read()
-        text = content.decode("utf-8", errors="replace")
-        data = json.loads(text)
-        if not isinstance(data, list):
-            raise HTTPException(status_code=400, detail="Transaction JSON must be an array of objects.")
-        for i, row in enumerate(data):
-            row["_source_row"] = i
-        raw_tx = data
-
-    # Fall back to defaults if one or both not uploaded
-    if raw_network is None:
-        raw_network = parse_csv(DEFAULT_SAMPLE_NETWORK_CSV)
-    if raw_tx is None:
-        raw_tx = parse_json(DEFAULT_SAMPLE_TX_JSON)
-
-    return _process_and_persist(raw_network, raw_tx)
-
-
-@router.get("/api/stats")
-def get_stats():
-    """Executive KPI metrics computed from the current intelligence dataset."""
-    meta = db.get_pipeline_meta()
-    if meta:
-        return meta
-
-    leads = db.get_all_leads()
-    graph = db.get_graph()
-    txs = db.get_all_transactions()
-
-    high_c = sum(1 for l in leads if l.get("severity") == "HIGH")
-    med_c = sum(1 for l in leads if l.get("severity") == "MEDIUM")
-    low_c = sum(1 for l in leads if l.get("severity") == "LOW")
-    total_out = sum(sum(t.get("output_amounts", [])) for t in txs)
+    db.save_transactions(tx_records)
+    db.save_graph(to_json_graph(g, wallet_risk))
 
     return {
-        "status": "ready" if leads else "empty",
-        "wallets_count": len(leads),
-        "high_risk_count": high_c,
-        "medium_risk_count": med_c,
-        "low_risk_count": low_c,
-        "transactions_ingested": len(txs),
-        "graph_nodes": len(graph.get("nodes", [])) if graph else 0,
-        "graph_edges": len(graph.get("edges", [])) if graph else 0,
-        "total_out_btc": round(total_out, 4),
-        "last_updated": time.time(),
+        "status": "ok",
+        "events_ingested": len(events), "events_skipped": len(skipped_events),
+        "transactions_ingested": len(transactions), "transactions_skipped": len(skipped_tx),
+        "links_found": len(links), "leads_generated": len(leads),
     }
 
 
@@ -281,9 +164,6 @@ def get_lead_detail(wallet: str):
     lead = db.get_lead(wallet)
     if not lead:
         raise HTTPException(status_code=404, detail=f"No lead found for wallet '{wallet}'")
-    # Attach GeoIP details if missing
-    if "related_ips_details" not in lead:
-        lead["related_ips_details"] = [lookup_ip(ip) for ip in lead.get("related_ips", [])]
     return lead
 
 
@@ -298,26 +178,65 @@ def get_graph():
     return graph
 
 
-@router.get("/api/graph/subgraph/{entity_id}")
-def get_subgraph(entity_id: str, hops: int = Query(1, ge=1, le=3)):
-    """Returns focused ego-network subgraph around an entity."""
-    subgraph = db.get_subgraph(entity_id, hops=hops)
-    if not subgraph:
-        raise HTTPException(status_code=404, detail=f"No graph data found for entity '{entity_id}'")
-    return subgraph
-
-
 @router.get("/api/transactions")
-def get_transactions():
-    """Returns all ingested transactions."""
-    return db.get_all_transactions()
+def list_transactions():
+    """Searchable transaction ledger -- one row per transaction, with the
+    primary correlation evidence already resolved (highest-confidence link)
+    for a quick-scan column."""
+    txs = db.get_all_transactions()
+    if not txs:
+        raise HTTPException(
+            status_code=404,
+            detail="No transactions found -- call POST /api/pipeline/run first to load data.",
+        )
+    return txs
 
 
 @router.get("/api/transactions/{txid}")
 def get_transaction_detail(txid: str):
-    """Returns detail for one transaction including correlation evidence."""
+    """Full transaction detail: inputs/outputs/amounts plus every candidate
+    correlation link found for this tx (not just the best one), so the
+    investigator can see all the evidence, not a hidden single number."""
     tx = db.get_transaction(txid)
     if not tx:
-        raise HTTPException(status_code=404, detail=f"No transaction found with id '{txid}'")
+        raise HTTPException(status_code=404, detail=f"No transaction found for txid '{txid}'")
     return tx
 
+
+@router.get("/api/ip/{ip}")
+def get_ip_detail(ip: str):
+    """IP/network intelligence for one address: public/private classification
+    (stdlib ipaddress, no new dependency), GeoIP country/ASN if a GeoLite2
+    .mmdb file is present (degrades to nulls otherwise -- see app/geoip/
+    lookup.py), and every transaction/wallet this IP is correlated with.
+    Works even before a pipeline run has produced transactions -- the
+    classification/GeoIP part doesn't depend on it.
+    """
+    try:
+        is_private = ipaddress.ip_address(ip).is_private
+        classification = "private" if is_private else "public"
+    except ValueError:
+        classification = "unknown"
+
+    geo = lookup_ip(ip)
+
+    txs = db.get_all_transactions()
+    connected_tx = [
+        tx for tx in txs
+        if any(ev.get("ip") == ip for ev in tx.get("correlation_evidence", []))
+    ]
+    connected_wallets = sorted({
+        addr
+        for tx in connected_tx
+        for addr in (tx["input_addresses"] + tx["output_addresses"])
+    })
+
+    return {
+        "ip": ip,
+        "classification": classification,
+        "country": geo["country"],
+        "asn": geo["asn"],
+        "geoip_available": geo["available"],
+        "connected_transactions": sorted({tx["txid"] for tx in connected_tx}),
+        "connected_wallets": connected_wallets,
+    }
