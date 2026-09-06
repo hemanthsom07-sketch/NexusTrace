@@ -1,0 +1,10 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pandas==2.2.3
+scikit-learn==1.5.2
+networkx==3.3
+pydantic==2.9.2
+
+# Optional -- only needed if you enable GeoIP enrichment (Phase 9, P1).
+# Uncomment and `pip install geoip2` if you download a GeoLite2 .mmdb file.
+# geoip2==4.8.0

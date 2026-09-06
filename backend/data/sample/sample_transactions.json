@@ -1,0 +1,22 @@
+[
+  {"txid": "TX1001", "timestamp": 1735700400, "input_addresses": ["W_A1"], "output_addresses": ["W_B1"], "input_amounts": [1.5], "output_amounts": [1.49], "fee": 0.01, "script_type": "P2PKH"},
+  {"txid": "TX1002", "timestamp": 1735700401, "input_addresses": ["W_C1"], "output_addresses": ["W_D1"], "input_amounts": [0.8], "output_amounts": [0.79], "fee": 0.01, "script_type": "P2PKH"},
+  {"txid": "TX1003", "timestamp": 1735700446, "input_addresses": ["W_E1"], "output_addresses": ["W_F1"], "input_amounts": [2.1], "output_amounts": [2.09], "fee": 0.01, "script_type": "P2SH"},
+  {"txid": "TX1004", "timestamp": 1735700463, "input_addresses": ["W_G1", "W_H1"], "output_addresses": ["W_I1"], "input_amounts": [0.5, 0.6], "output_amounts": [1.09], "fee": 0.01, "script_type": "P2PKH"},
+  {"txid": "TX1005", "timestamp": 1735700471, "input_addresses": ["W_I1"], "output_addresses": ["W_J1"], "input_amounts": [1.09], "output_amounts": [1.08], "fee": 0.01, "script_type": "P2PKH"},
+  {"txid": "TX1006", "timestamp": 1735701201, "input_addresses": ["W_K1"], "output_addresses": ["W_L1"], "input_amounts": [0.3], "output_amounts": [0.29], "fee": 0.01, "script_type": "P2PKH"},
+  {"txid": "TX1007", "timestamp": 1735702001, "input_addresses": ["W_M1"], "output_addresses": ["W_N1"], "input_amounts": [0.95], "output_amounts": [0.94], "fee": 0.01, "script_type": "P2PKH"},
+
+  {"txid": "TX2001", "timestamp": 1735702601, "input_addresses": ["W_A12"], "output_addresses": ["W_X1", "W_X2", "W_X3"], "input_amounts": [3.0], "output_amounts": [0.99, 0.99, 0.99], "fee": 0.03, "script_type": "P2PKH"},
+  {"txid": "TX2002", "timestamp": 1735702611, "input_addresses": ["W_A12"], "output_addresses": ["W_X4", "W_X5"], "input_amounts": [2.0], "output_amounts": [0.99, 0.99], "fee": 0.02, "script_type": "P2PKH"},
+  {"txid": "TX2003", "timestamp": 1735702616, "input_addresses": ["W_A12"], "output_addresses": ["W_X6", "W_X7", "W_X8"], "input_amounts": [3.0], "output_amounts": [0.99, 0.99, 0.99], "fee": 0.03, "script_type": "P2PKH"},
+  {"txid": "TX2004", "timestamp": 1735702621, "input_addresses": ["W_A12"], "output_addresses": ["W_X9"], "input_amounts": [1.0], "output_amounts": [0.99], "fee": 0.01, "script_type": "P2PKH"},
+
+  {"txid": "TX3001", "timestamp": 1735703001, "input_addresses": ["W_O1"], "output_addresses": ["W_P1"], "input_amounts": [0.4], "output_amounts": [0.39], "fee": 0.01, "script_type": "P2PKH"},
+  {"txid": "TX3002", "timestamp": 1735703501, "input_addresses": ["W_Q1"], "output_addresses": ["W_R1"], "input_amounts": [1.2], "output_amounts": [1.19], "fee": 0.01, "script_type": "P2SH"},
+  {"txid": "TX3003", "timestamp": 1735704001, "input_addresses": ["W_S1"], "output_addresses": ["W_T1"], "input_amounts": [0.6], "output_amounts": [0.59], "fee": 0.01, "script_type": "P2PKH"},
+  {"txid": "TX3004", "timestamp": 1735705001, "input_addresses": ["W_U1"], "output_addresses": ["W_V1"], "input_amounts": [0.75], "output_amounts": [0.74], "fee": 0.01, "script_type": "P2PKH"},
+  {"txid": "TX3005", "timestamp": 1735705501, "input_addresses": ["W_W1"], "output_addresses": ["W_Y1"], "input_amounts": [1.1], "output_amounts": [1.09], "fee": 0.01, "script_type": "P2PKH"},
+  {"txid": "TX3006", "timestamp": 1735706001, "input_addresses": ["W_Z1"], "output_addresses": ["W_AA1"], "input_amounts": [0.5], "output_amounts": [0.49], "fee": 0.01, "script_type": "P2PKH"},
+  {"txid": "TX3007", "timestamp": 1735707001, "input_addresses": ["W_BB1"], "output_addresses": ["W_CC1"], "input_amounts": [0.85], "output_amounts": [0.84], "fee": 0.01, "script_type": "P2PKH"}
+]
