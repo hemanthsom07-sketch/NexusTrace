@@ -4,7 +4,9 @@ pandas==2.2.3
 scikit-learn==1.5.2
 networkx==3.3
 pydantic==2.9.2
+python-multipart==0.0.9
 
-# Optional -- only needed if you enable GeoIP enrichment (Phase 9, P1).
-# Uncomment and `pip install geoip2` if you download a GeoLite2 .mmdb file.
+# Optional -- only needed if you drop GeoLite2-City.mmdb / GeoLite2-ASN.mmdb
+# into backend/data/geoip/. The app runs fine without it (GeoIP enrichment
+# just reports "unavailable" instead of country/ASN/coordinates).
 # geoip2==4.8.0

@@ -1,65 +1,73 @@
 import React from 'react'
-import { Radio, Layers, Link2, Wallet, AlertOctagon, ArrowUpRight } from 'lucide-react'
 
 export default function KpiBar({ stats }) {
   if (!stats) return null
 
-  const items = [
-    {
-      label: 'Network Events',
-      value: stats.events_ingested ?? 19,
-      sub: `${stats.events_skipped ?? 1} skipped`,
-      icon: Radio,
-    },
-    {
-      label: 'Transactions Ingested',
-      value: stats.transactions_ingested ?? 18,
-      sub: 'On-chain blocks',
-      icon: Layers,
-    },
-    {
-      label: 'Correlations Found',
-      value: stats.links_found ?? 22,
-      sub: 'Cross-layer links',
-      icon: Link2,
-      color: 'cyan',
-    },
-    {
-      label: 'Wallets Scored',
-      value: stats.wallets_count ?? 38,
-      sub: 'Isolation Forest',
-      icon: Wallet,
-    },
-    {
-      label: 'High-Risk Alerts',
-      value: stats.high_risk_count ?? 2,
-      sub: `Severity ≥ 0.70 (${stats.medium_risk_count ?? 1} medium)`,
-      icon: AlertOctagon,
-      color: 'high-risk',
-    },
-    {
-      label: 'Total Outgoing BTC',
-      value: `${(stats.total_out_btc ?? 22.01).toFixed(2)} BTC`,
-      sub: 'Observed volume',
-      icon: ArrowUpRight,
-    },
-  ]
-
   return (
     <div className="kpi-bar">
-      {items.map((item, idx) => {
-        const Icon = item.icon
-        return (
-          <div key={idx} className="kpi-card">
-            <div className="kpi-label">{item.label}</div>
-            <div className="kpi-value-row">
-              <span className={`kpi-value ${item.color || ''}`}>{item.value}</span>
-              <Icon size={14} color="#64748B" />
-            </div>
-            <div className="kpi-sub">{item.sub}</div>
-          </div>
-        )
-      })}
+      <div className="kpi-card">
+        <div className="kpi-label">Network Events</div>
+        <div className="kpi-value-row">
+          <span className="kpi-value cyan">
+            {stats.events_ingested || 0}
+          </span>
+        </div>
+        <div className="kpi-sub">
+          {stats.events_skipped || 0} skipped
+        </div>
+      </div>
+
+      <div className="kpi-card">
+        <div className="kpi-label">Transactions Ingested</div>
+        <div className="kpi-value-row">
+          <span className="kpi-value">
+            {stats.transactions_ingested || 0}
+          </span>
+        </div>
+        <div className="kpi-sub">On-chain blocks</div>
+      </div>
+
+      <div className="kpi-card">
+        <div className="kpi-label">Correlations Found</div>
+        <div className="kpi-value-row">
+          <span className="kpi-value cyan">
+            {stats.links_found || 0}
+          </span>
+        </div>
+        <div className="kpi-sub">Cross-layer links</div>
+      </div>
+
+      <div className="kpi-card">
+        <div className="kpi-label">Wallets Scored</div>
+        <div className="kpi-value-row">
+          <span className="kpi-value">
+            {stats.wallets_count || 0}
+          </span>
+        </div>
+        <div className="kpi-sub">Isolation Forest</div>
+      </div>
+
+      <div className="kpi-card">
+        <div className="kpi-label">High-Risk Alerts</div>
+        <div className="kpi-value-row">
+          <span className="kpi-value high-risk">
+            {stats.high_risk_count || 0}
+          </span>
+        </div>
+        <div className="kpi-sub">Severity ≥ 0.70</div>
+      </div>
+
+      <div className="kpi-card">
+        <div className="kpi-label">Total Outgoing BTC</div>
+        <div className="kpi-value-row">
+          <span className="kpi-value">
+            {typeof stats.total_out_amount === 'number'
+              ? stats.total_out_amount.toFixed(2)
+              : '0.00'}
+          </span>
+        </div>
+        <div className="kpi-sub">Observed volume</div>
+      </div>
     </div>
   )
 }

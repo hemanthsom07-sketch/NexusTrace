@@ -1,48 +1,69 @@
 import React from 'react'
-import { Globe, Server, Shield, MapPin } from 'lucide-react'
+import { Globe, Lock } from 'lucide-react'
 
-export default function GeoIpCard({ geoipData, ipAddress }) {
-  if (!ipAddress && !geoipData) return null
+export default function GeoIpCard({ geoData }) {
+  if (!geoData) return null
 
-  const geo = geoipData || {}
+  const isPrivate = geoData.classification === 'private' || geoData.is_private
+  const resolved = geoData.geoip_available
+
+  if (isPrivate) {
+    return (
+      <div className="geo-ip-card">
+        <div className="geo-ip-header"><Lock size={16} /><h3>Private / Internal Address</h3></div>
+        <p className="geo-ip-note">
+          This is a private/reserved IP address. Public geographic or ASN attribution does not apply.
+        </p>
+      </div>
+    )
+  }
 
   return (
-    <div className="inspector-card">
-      <div className="section-title">
-        <Globe size={13} />
-        <span>Network &amp; GeoIP Intelligence</span>
+    <div className="geo-ip-card">
+      <div className="geo-ip-header">
+        <Globe size={20} />
+        <h3>{resolved ? 'GeoIP / ASN Intelligence' : 'GeoIP / ASN — Unavailable'}</h3>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1E2D47', paddingBottom: 6 }}>
-          <span style={{ color: '#94A3B8' }}>IP Address:</span>
-          <span style={{ fontFamily: 'ui-monospace, monospace', fontWeight: 600, color: '#38BDF8' }}>
-            {geo.ip || ipAddress}
+      <div className="geo-ip-details">
+        <div className="geo-ip-row">
+          <span className="geo-ip-label">Country</span>
+          <span className="geo-ip-value">{geoData.country || (resolved ? 'Unknown' : 'Unavailable')}</span>
+        </div>
+        <div className="geo-ip-row">
+          <span className="geo-ip-label">Region</span>
+          <span className="geo-ip-value">{geoData.region || (resolved ? 'Unknown' : 'Unavailable')}</span>
+        </div>
+        <div className="geo-ip-row">
+          <span className="geo-ip-label">City</span>
+          <span className="geo-ip-value">{geoData.city || (resolved ? 'Unknown' : 'Unavailable')}</span>
+        </div>
+        <div className="geo-ip-row">
+          <span className="geo-ip-label">Coordinates</span>
+          <span className="geo-ip-value">
+            {typeof geoData.latitude === 'number' && typeof geoData.longitude === 'number'
+              ? `${geoData.latitude.toFixed(3)}, ${geoData.longitude.toFixed(3)}`
+              : 'Unavailable'}
           </span>
+        </div>
+        <div className="geo-ip-row">
+          <span className="geo-ip-label">ASN</span>
+          <span className="geo-ip-value">{geoData.asn || 'Unavailable'}</span>
+        </div>
+        <div className="geo-ip-row">
+          <span className="geo-ip-label">Organization</span>
+          <span className="geo-ip-value">{geoData.org || 'Unavailable'}</span>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1E2D47', paddingBottom: 6 }}>
-          <span style={{ color: '#94A3B8' }}>Routing Classification:</span>
-          <span style={{ color: geo.is_private ? '#F59E0B' : '#10B981', fontWeight: 600 }}>
-            {geo.network_type || (geo.is_private ? 'Private / RFC 1918' : 'Public Routable')}
-          </span>
-        </div>
-
-        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1E2D47', paddingBottom: 6 }}>
-          <span style={{ color: '#94A3B8' }}>Geographic Region:</span>
-          <span style={{ color: '#E2E8F0', display: 'flex', alignItems: 'center', gap: 4 }}>
-            <MapPin size={11} color="#64748B" />
-            {geo.country ? `${geo.country}${geo.city ? ` (${geo.city})` : ''}` : 'GeoIP data unavailable'}
-          </span>
-        </div>
-
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <span style={{ color: '#94A3B8' }}>Autonomous System:</span>
-          <span style={{ color: '#E2E8F0', display: 'flex', alignItems: 'center', gap: 4, fontFamily: 'ui-monospace, monospace' }}>
-            <Server size={11} color="#64748B" />
-            {geo.asn ? `${geo.asn}${geo.org ? ` - ${geo.org}` : ''}` : 'ASN unavailable'}
-          </span>
-        </div>
+        <p className="geo-ip-note">
+          {geoData.prototype
+            ? 'Prototype enrichment for the supplied demo dataset. It is illustrative, not live IP geolocation.'
+            : (geoData.geoip_status ||
+              (resolved
+                ? 'Resolved from an offline GeoLite2 database.'
+                : 'No offline GeoLite2 database configured — see backend/data/geoip/ to enable country, ASN and coordinate enrichment.'))}
+        </p>
+        {geoData.source && <div className="geo-ip-source">Source: {geoData.source}</div>}
       </div>
     </div>
   )

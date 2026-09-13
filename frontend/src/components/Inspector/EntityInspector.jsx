@@ -1,326 +1,228 @@
-import React, { useState } from 'react'
-import {
-  Copy,
-  Crosshair,
-  FileDown,
-  ExternalLink,
-  ShieldAlert,
-  Layers,
-  Globe,
-  Wallet,
-  Check,
-} from 'lucide-react'
+import React, { useMemo } from 'react'
+import { Sparkles } from 'lucide-react'
 import WhyFlaggedCard from './WhyFlaggedCard'
 import MetricGauge from './MetricGauge'
-import RelatedChips from './RelatedChips'
-import GeoIpCard from './GeoIpCard'
-import TimelineView from './TimelineView'
+import { explainWallet } from '../../lib/explainability'
+import { formatPercent } from '../../lib/format'
+
+const FEATURE_LABELS = {
+  transaction_velocity: 'Transaction Velocity',
+  fan_out_count: 'Fan-out',
+  fan_in_count: 'Fan-in',
+  distinct_ip_count: 'Distinct IPs',
+  total_out_amount: 'Outgoing Amount',
+  total_in_amount: 'Incoming Amount',
+}
+
+// Rough display ceilings so the bars are legible -- purely a rendering
+// scale, the underlying numbers shown are always the real backend values.
+const FEATURE_MAX = {
+  transaction_velocity: 10,
+  fan_out_count: 10,
+  fan_in_count: 10,
+  distinct_ip_count: 10,
+  total_out_amount: 10,
+  total_in_amount: 10,
+}
+
+function SignalCard({ signal }) {
+  return (
+    <div className="signal-card">
+      <div className="signal-card-header">
+        <span className="signal-card-label">{signal.label}</span>
+        <span className={`signal-card-value signal-direction-${signal.direction}`}>
+          {signal.value}{signal.unit}
+        </span>
+      </div>
+      <div className="signal-card-percentile">
+        {signal.percentile}th percentile for this dataset · {signal.direction === 'typical' ? 'within typical range' : `${signal.direction === 'high' ? 'above' : 'below'} typical range`}
+      </div>
+      <div className="signal-card-meaning">{signal.meaning}</div>
+    </div>
+  )
+}
 
 export default function EntityInspector({
   selectedEntity,
+  leads = [],
+  transactions = [],
   leadDetail,
   transactionDetail,
   ipDetail,
-  onSelectWallet,
-  onSelectTx,
-  onSelectIp,
-  onFocusInGraph,
-  onShowToast,
 }) {
-  const [copied, setCopied] = useState(false)
+  const explanation = useMemo(() => {
+    if (selectedEntity?.type !== 'wallet' || !leadDetail) return null
+    return explainWallet(leads, selectedEntity.id)
+  }, [leads, selectedEntity, leadDetail])
 
-  if (!selectedEntity || !selectedEntity.id) {
-    return (
-      <div className="inspector-panel">
-        <div className="cyber-empty-state">
-          <ShieldAlert size={36} color="#64748B" />
-          <p style={{ fontWeight: 600, color: '#94A3B8' }}>No Entity Selected</p>
-          <p style={{ fontSize: 11.5 }}>
-            Select any wallet from the leads table, or click a transaction, wallet, or IP node in the graph.
-          </p>
-        </div>
-      </div>
-    )
-  }
-
-  const { type, id } = selectedEntity
-
-  const handleCopy = (text) => {
-    navigator.clipboard.writeText(text)
-    setCopied(true)
-    if (onShowToast) onShowToast(`Copied ${text} to clipboard`, 'success')
-    setTimeout(() => setCopied(false), 2000)
-  }
-
-  const handleExportDossier = () => {
-    const data = {
-      entity: selectedEntity,
-      lead: leadDetail,
-      transaction: transactionDetail,
-      timestamp: new Date().toISOString(),
-      platform: 'NexusTrace SIH26146',
+  // First piece of real correlation evidence tied to this wallet's own
+  // transactions -- cross-referenced from the transaction records the
+  // backend already returned, never invented. Kept to one representative
+  // item here; the Evidence tab below has the full list.
+  const correlationEvidence = useMemo(() => {
+    if (!leadDetail?.related_txids?.length) return null
+    for (const txid of leadDetail.related_txids) {
+      const tx = transactions.find((t) => t.txid === txid)
+      const ev = tx?.correlation_evidence?.[0]
+      if (ev) return { ...ev, txid }
     }
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `nexustrace_${type}_${id}_evidence.json`
-    a.click()
-    URL.revokeObjectURL(url)
-    if (onShowToast) onShowToast('Investigation dossier exported', 'success')
-  }
+    return null
+  }, [leadDetail, transactions])
 
-  // -------------------------------------------------------------
-  // WALLET INSPECTOR VIEW
-  // -------------------------------------------------------------
-  if (type === 'wallet') {
-    const detail = leadDetail || {}
-    const severity = detail.severity || 'LOW'
-    const score = typeof detail.anomaly_score === 'number' ? detail.anomaly_score : 0.0
-
+  if (!selectedEntity) {
     return (
-      <div className="inspector-panel">
-        {/* Header Card */}
-        <div className="inspector-header-card">
-          <div className="entity-eyebrow">
-            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <Wallet size={12} color="#0EA5E9" />
-              Wallet Intelligence Dossier
-            </span>
-            <span className={`severity-tag ${severity.toLowerCase()}`}>{severity} RISK</span>
-          </div>
-
-          <div className="entity-id-row">
-            <div className="entity-title" title={id}>
-              {id}
-            </div>
-            <div className="entity-score-display">
-              <span className={`big-score ${severity === 'HIGH' ? '' : 'cyan'}`}>
-                {score.toFixed(3)}
-              </span>
-            </div>
-          </div>
-
-          <div className="action-buttons-row">
-            <button className="btn-action" onClick={() => handleCopy(id)}>
-              {copied ? <Check size={12} color="#10B981" /> : <Copy size={12} />}
-              <span>{copied ? 'Copied' : 'Copy'}</span>
-            </button>
-            <button className="btn-action" onClick={() => onFocusInGraph && onFocusInGraph(`wallet:${id}`)}>
-              <Crosshair size={12} />
-              <span>Focus</span>
-            </button>
-            <button className="btn-action" onClick={handleExportDossier}>
-              <FileDown size={12} />
-              <span>Export</span>
-            </button>
-          </div>
+      <div className="entity-inspector empty">
+        <div className="empty-inspector">
+          <h3>No Investigation Selected</h3>
+          <p>Select a lead from the queue or a node in the graph to inspect its risk profile.</p>
         </div>
-
-        {/* Why Flagged Explainability Card */}
-        <WhyFlaggedCard reasons={detail.reasons} />
-
-        {/* Feature Snapshot Gauges */}
-        <MetricGauge featureSnapshot={detail.feature_snapshot} />
-
-        {/* Related Interactive Chips */}
-        <RelatedChips
-          relatedTxids={detail.related_txids || []}
-          relatedIps={detail.related_ips || []}
-          onSelectTx={onSelectTx}
-          onSelectIp={onSelectIp}
-        />
-
-        {/* GeoIP Intelligence for Connected IPs */}
-        {detail.related_ips_details && detail.related_ips_details[0] && (
-          <GeoIpCard geoipData={detail.related_ips_details[0]} />
-        )}
-
-        {/* Cross-Layer Timeline */}
-        <TimelineView
-          wallet={id}
-          severity={severity}
-          txCount={(detail.related_txids || []).length}
-        />
       </div>
     )
   }
 
-  // -------------------------------------------------------------
-  // TRANSACTION INSPECTOR VIEW
-  // -------------------------------------------------------------
-  if (type === 'transaction') {
-    const tx = transactionDetail || {}
-    const inputs = tx.input_addresses || []
-    const outputs = tx.output_addresses || []
-    const inSum = (tx.input_amounts || []).reduce((a, b) => a + b, 0)
-    const outSum = (tx.output_amounts || []).reduce((a, b) => a + b, 0)
+  const severity = leadDetail?.severity
+  const hasScore = typeof leadDetail?.anomaly_score === 'number'
 
-    return (
-      <div className="inspector-panel">
-        <div className="inspector-header-card">
-          <div className="entity-eyebrow">
-            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <Layers size={12} color="#06B6D4" />
-              On-Chain Transaction Inspector
+  return (
+    <div className="entity-inspector">
+      <div className="inspector-header">
+        <span className="inspector-type">{selectedEntity.type}</span>
+        <h2>{selectedEntity.id}</h2>
+      </div>
+
+      {leadDetail && (
+        <>
+          <div className="risk-summary">
+            <div className="risk-summary-header">
+              <span>Risk Score</span>
+              <strong className={`severity-${(severity || 'low').toLowerCase()}`}>
+                {hasScore ? formatPercent(leadDetail.anomaly_score) : 'N/A'}
+              </strong>
+            </div>
+            <span className={`pill severity-${(severity || 'low').toLowerCase()}`}>
+              {severity || 'LOW'}
             </span>
-            <span className="severity-tag low" style={{ color: '#06B6D4', borderColor: '#0891B2' }}>
-              CONFIRMED
-            </span>
           </div>
 
-          <div className="entity-id-row">
-            <div className="entity-title" title={id}>
-              {id}
-            </div>
-            <div style={{ textAlign: 'right', fontSize: 11, color: '#94A3B8', fontFamily: 'ui-monospace' }}>
-              {outSum.toFixed(2)} BTC
-            </div>
-          </div>
-
-          <div className="action-buttons-row">
-            <button className="btn-action" onClick={() => handleCopy(id)}>
-              {copied ? <Check size={12} color="#10B981" /> : <Copy size={12} />}
-              <span>Copy TXID</span>
-            </button>
-            <button className="btn-action" onClick={() => onFocusInGraph && onFocusInGraph(`tx:${id}`)}>
-              <Crosshair size={12} />
-              <span>Focus in Graph</span>
-            </button>
-            <button className="btn-action" onClick={handleExportDossier}>
-              <FileDown size={12} />
-              <span>Export</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Transaction Telemetry */}
-        <div className="inspector-card">
-          <div className="section-title">
-            <Layers size={13} />
-            <span>Transaction Parameters</span>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1E2D47', paddingBottom: 4 }}>
-              <span style={{ color: '#94A3B8' }}>Timestamp:</span>
-              <span style={{ fontFamily: 'ui-monospace', color: '#F1F5F9' }}>
-                {tx.timestamp ? new Date(tx.timestamp * 1000).toLocaleString() : '—'}
-              </span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1E2D47', paddingBottom: 4 }}>
-              <span style={{ color: '#94A3B8' }}>Network Fee:</span>
-              <span style={{ fontFamily: 'ui-monospace', color: '#F1F5F9' }}>{tx.fee ?? 0.01} BTC</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1E2D47', paddingBottom: 4 }}>
-              <span style={{ color: '#94A3B8' }}>Script Type:</span>
-              <span style={{ fontFamily: 'ui-monospace', color: '#0EA5E9' }}>{tx.script_type || 'P2PKH'}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: '#94A3B8' }}>Max Link Confidence:</span>
-              <span style={{ fontFamily: 'ui-monospace', color: '#10B981', fontWeight: 600 }}>
-                {((tx.confidence_max ?? 1.0) * 100).toFixed(0)}%
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Correlation Evidence */}
-        <div className="inspector-card">
-          <div className="section-title">
-            <Layers size={13} color="#E8542C" />
-            <span>Cross-Layer Correlation Proof</span>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {(tx.evidence || ['Δt=0.0s, port=8333 (standard)']).map((ev, i) => (
-              <div key={i} className="reason-card" style={{ borderColor: 'rgba(232, 84, 44, 0.4)', background: 'rgba(232, 84, 44, 0.08)' }}>
-                <span className="reason-num" style={{ color: '#E8542C', background: 'rgba(232, 84, 44, 0.2)' }}>
-                  Proof
-                </span>
-                <span className="reason-text" style={{ fontFamily: 'ui-monospace' }}>{ev}</span>
+          {explanation && (
+            <div className="ai-explanation-card">
+              <div className="ai-explanation-header"><Sparkles size={12} /> Why This Wallet Was Flagged</div>
+              <p className="ai-explanation-text">{explanation.summary}</p>
+              <div className="explanation-note">
+                Evidence-based percentile ranking computed from this dataset — not a claimed exact model attribution.
               </div>
-            ))}
-          </div>
-        </div>
+            </div>
+          )}
 
-        {/* Inflow / Outflow Wallets */}
-        <div className="inspector-card">
-          <div className="section-title">
-            <Wallet size={13} />
-            <span>Involved Wallets</span>
+          <WhyFlaggedCard reasons={leadDetail.reasons || []} />
+
+          <div className="inspector-section">
+            <h3>Model Signals</h3>
+            <div className="behavioral-features">
+              {explanation ? (
+                explanation.signals.map((signal) => (
+                  <SignalCard key={signal.feature} signal={signal} />
+                ))
+              ) : leadDetail.feature_snapshot && typeof leadDetail.feature_snapshot === 'object' ? (
+                Object.entries(leadDetail.feature_snapshot)
+                  .filter(([key]) => FEATURE_LABELS[key])
+                  .map(([key, value]) => (
+                    <MetricGauge
+                      key={key}
+                      label={FEATURE_LABELS[key]}
+                      value={typeof value === 'number' ? Number(value.toFixed(2)) : value}
+                      max={Math.max(FEATURE_MAX[key] || 10, typeof value === 'number' ? value : 0)}
+                      isHighRisk={severity === 'HIGH'}
+                    />
+                  ))
+              ) : (
+                <p>No behavioral features available.</p>
+              )}
+            </div>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+
+          {correlationEvidence && (
+            <div className="inspector-section">
+              <h3>Correlation Evidence</h3>
+              <div className="detail-grid">
+                <div>
+                  <span>IP</span>
+                  <strong>{correlationEvidence.ip}</strong>
+                </div>
+                <div>
+                  <span>Δt</span>
+                  <strong>{correlationEvidence.time_delta_seconds ?? 'N/A'}s</strong>
+                </div>
+                <div>
+                  <span>Confidence</span>
+                  <strong>{formatPercent(correlationEvidence.confidence)}</strong>
+                </div>
+                <div>
+                  <span>Transaction</span>
+                  <strong>{correlationEvidence.txid}</strong>
+                </div>
+              </div>
+              <p style={{ marginTop: 4 }}>
+                Observed network telemetry correlated with this wallet's transaction activity — see the Evidence tab below for the full list.
+              </p>
+            </div>
+          )}
+        </>
+      )}
+
+      {transactionDetail && (
+        <div className="inspector-section">
+          <h3>Transaction Summary</h3>
+          <div className="detail-grid">
             <div>
-              <div style={{ fontSize: 11, color: '#94A3B8', marginBottom: 4 }}>Input Wallets (Sources):</div>
-              <div className="chips-container">
-                {inputs.map((w) => (
-                  <button key={w} className="evidence-chip" onClick={() => onSelectWallet(w)}>
-                    <Wallet size={11} />
-                    <span>{w}</span>
-                  </button>
-                ))}
-              </div>
+              <span>Amount</span>
+              <strong>{typeof transactionDetail.btc_amount === 'number' ? `${transactionDetail.btc_amount} BTC` : 'Unknown'}</strong>
             </div>
-
             <div>
-              <div style={{ fontSize: 11, color: '#94A3B8', marginBottom: 4 }}>Output Wallets (Destinations):</div>
-              <div className="chips-container">
-                {outputs.map((w) => (
-                  <button key={w} className="evidence-chip" onClick={() => onSelectWallet(w)}>
-                    <Wallet size={11} />
-                    <span>{w}</span>
-                  </button>
-                ))}
-              </div>
+              <span>Fee</span>
+              <strong>{transactionDetail.fee ?? 'Unknown'}</strong>
+            </div>
+            <div>
+              <span>Script Type</span>
+              <strong>{transactionDetail.script_type || 'Unknown'}</strong>
+            </div>
+            <div>
+              <span>Correlation Confidence</span>
+              <strong>
+                {typeof transactionDetail.confidence === 'number'
+                  ? `${Math.round(transactionDetail.confidence * 100)}%`
+                  : 'N/A'}
+              </strong>
             </div>
           </div>
+          <p style={{ marginTop: 4 }}>Full transaction, timeline and evidence detail is in the tabs below.</p>
         </div>
-      </div>
-    )
-  }
+      )}
 
-  // -------------------------------------------------------------
-  // IP NODE INSPECTOR VIEW
-  // -------------------------------------------------------------
-  if (type === 'ip') {
-    return (
-      <div className="inspector-panel">
-        <div className="inspector-header-card">
-          <div className="entity-eyebrow">
-            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <Globe size={12} color="#10B981" />
-              P2P Broadcast Node Intelligence
-            </span>
-            <span className="severity-tag low" style={{ color: '#10B981', borderColor: '#059669' }}>
-              NETWORK NODE
-            </span>
-          </div>
-
-          <div className="entity-id-row">
-            <div className="entity-title" title={id}>
-              {id}
+      {ipDetail && (
+        <div className="inspector-section">
+          <h3>Network Node Summary</h3>
+          <div className="detail-grid">
+            <div>
+              <span>Classification</span>
+              <strong>{ipDetail.classification || 'Unknown'}</strong>
+            </div>
+            <div>
+              <span>Country</span>
+              <strong>{ipDetail.country || (ipDetail.geoip_available ? 'Unknown' : 'Unavailable')}</strong>
+            </div>
+            <div>
+              <span>Connected TX</span>
+              <strong>{ipDetail.connected_transactions?.length || 0}</strong>
+            </div>
+            <div>
+              <span>Connected Wallets</span>
+              <strong>{ipDetail.connected_wallets?.length || 0}</strong>
             </div>
           </div>
-
-          <div className="action-buttons-row">
-            <button className="btn-action" onClick={() => handleCopy(id)}>
-              {copied ? <Check size={12} color="#10B981" /> : <Copy size={12} />}
-              <span>Copy IP</span>
-            </button>
-            <button className="btn-action" onClick={() => onFocusInGraph && onFocusInGraph(`ip:${id}`)}>
-              <Crosshair size={12} />
-              <span>Focus in Graph</span>
-            </button>
-            <button className="btn-action" onClick={handleExportDossier}>
-              <FileDown size={12} />
-              <span>Export</span>
-            </button>
-          </div>
+          <p style={{ marginTop: 4 }}>Full GeoIP / ASN detail is in the GeoIP tab below.</p>
         </div>
-
-        <GeoIpCard ipAddress={id} geoipData={ipDetail} />
-      </div>
-    )
-  }
-
-  return null
+      )}
+    </div>
+  )
 }

@@ -1,221 +1,257 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import {
-  ZoomIn,
-  ZoomOut,
-  Maximize2,
-  RotateCcw,
-  Crosshair,
-  Box,
-  Square,
-  AlertCircle,
-} from 'lucide-react'
+import { ZoomIn, ZoomOut, Maximize2, RotateCcw, X, AlertCircle, Crosshair } from 'lucide-react'
 import GraphView2D from './GraphView2D'
-import GraphView3D from './GraphView3D'
 import GraphLegend from './GraphLegend'
+import { connectedNetwork } from '../../lib/graphNetwork'
+import { layoutNetwork } from '../../lib/graphLayout'
+import { edgeExplanation } from '../../lib/entityMeta'
+import { formatPercent } from '../../lib/format'
 
-export default function GraphContainer({
-  graphData,
+function findEvidenceForBroadcastEdge(link, transactions) {
+  // Confidence already lives on the edge itself (see graph/builder.py),
+  // but Δt/port only exist on each transaction's own correlation_evidence
+  // list -- look that up rather than inventing it.
+  if (link.edge_type !== 'broadcast') return null
+  const ip = link.source?.label || link.source?.id?.replace(/^ip:/, '')
+  const txid = link.target?.label || link.target?.id?.replace(/^tx:/, '')
+  const tx = transactions.find((t) => t.txid === txid)
+  if (!tx) return null
+  return (tx.correlation_evidence || []).find((ev) => ev.ip === ip) || null
+}
+
+function GraphCanvas({
+  fgData,
   selectedEntityId,
   onSelectEntity,
-  loading = false,
+  transactions,
+  isFullscreen,
+  onToggleFullscreen,
+  onClose,
 }) {
   const containerRef = useRef(null)
-  const fgRef = useRef(null)
   const [dims, setDims] = useState({ width: 600, height: 500 })
-  const [mode, setMode] = useState('2d') // '2d' | '3d'
-  const [webglError, setWebglError] = useState(false)
+  const [zoomLevel, setZoomLevel] = useState(1)
+  const [linkInfo, setLinkInfo] = useState(null)
 
-  // Track container size
   useEffect(() => {
     if (!containerRef.current) return
     const observer = new ResizeObserver((entries) => {
       const { width, height } = entries[0].contentRect
-      if (width > 0 && height > 0) {
-        setDims({ width, height })
-      }
+      if (width > 0 && height > 0) setDims({ width, height })
     })
     observer.observe(containerRef.current)
     return () => observer.disconnect()
   }, [])
 
-  // Format data for react-force-graph: nodes and links
-  const fgData = useMemo(() => {
-    if (!graphData || !graphData.nodes) return null
-    return {
-      nodes: graphData.nodes.map((n) => ({ ...n })),
-      links: (graphData.edges || graphData.links || []).map((e) => ({
-        ...e,
-        source: e.source,
-        target: e.target,
-      })),
-    }
-  }, [graphData])
+  // Reset zoom and any open link detail whenever the focused network
+  // changes, so the default view is always the readable, fitted view.
+  useEffect(() => {
+    setZoomLevel(1)
+    setLinkInfo(null)
+  }, [selectedEntityId])
 
-  // Camera control helpers
-  const handleZoomIn = useCallback(() => {
-    if (!fgRef.current) return
-    if (mode === '2d') {
-      const currentZoom = fgRef.current.zoom()
-      fgRef.current.zoom(currentZoom * 1.3, 300)
-    }
-  }, [mode])
+  const layout = useMemo(() => layoutNetwork(fgData.nodes, fgData.links), [fgData])
 
-  const handleZoomOut = useCallback(() => {
-    if (!fgRef.current) return
-    if (mode === '2d') {
-      const currentZoom = fgRef.current.zoom()
-      fgRef.current.zoom(currentZoom / 1.3, 300)
-    }
-  }, [mode])
+  const handleLinkClick = useCallback(
+    (link) => {
+      const explanation = edgeExplanation(link)
+      const evidence = findEvidenceForBroadcastEdge(link, transactions)
+      setLinkInfo({ ...explanation, evidence })
+    },
+    [transactions]
+  )
 
-  const handleFit = useCallback(() => {
-    if (!fgRef.current) return
-    if (mode === '2d') {
-      fgRef.current.zoomToFit(400, 30)
-    } else {
-      fgRef.current.zoomToFit(800, 30)
-    }
-  }, [mode])
+  const handleZoomIn = () => setZoomLevel((z) => Math.min(z * 1.3, 6))
+  const handleZoomOut = () => setZoomLevel((z) => Math.max(z / 1.3, 0.4))
+  const handleReset = () => setZoomLevel(1)
 
-  const handleReset = useCallback(() => {
-    if (!fgRef.current) return
-    if (mode === '2d') {
-      fgRef.current.centerAt(0, 0, 400)
-      fgRef.current.zoom(1, 400)
-    } else {
-      fgRef.current.cameraPosition({ x: 0, y: 0, z: 220 }, { x: 0, y: 0, z: 0 }, 800)
-    }
-  }, [mode])
-
-  const handleCenterSelected = useCallback(() => {
-    if (!fgRef.current || !selectedEntityId || !fgData?.nodes) return
-    const target = fgData.nodes.find((n) => n.id === selectedEntityId)
-    if (target && target.x !== undefined) {
-      if (mode === '2d') {
-        fgRef.current.centerAt(target.x, target.y, 500)
-        fgRef.current.zoom(2.2, 500)
-      } else {
-        fgRef.current.cameraPosition(
-          { x: target.x + 40, y: target.y + 40, z: (target.z || 0) + 60 },
-          target,
-          800
-        )
-      }
-    }
-  }, [selectedEntityId, fgData, mode])
-
-  if (loading) {
+  if (!selectedEntityId) {
     return (
-      <div className="graph-panel" ref={containerRef}>
-        <div className="cyber-empty-state">
-          <div className="cyber-spinner" />
-          <p>Synthesizing entity topology graph…</p>
+      <div ref={containerRef} className="graph-container empty">
+        <div className="graph-empty">
+          <Crosshair size={28} />
+          <h3>Select an investigation lead</h3>
+          <p>The graph intentionally stays focused on one case. Choose a wallet from the Investigation Queue to reveal its transactions, output wallets and network evidence.</p>
         </div>
       </div>
     )
   }
 
-  if (!fgData || fgData.nodes.length === 0) {
+  if (!layout.nodes.length) {
     return (
-      <div className="graph-panel" ref={containerRef}>
-        <div className="cyber-empty-state">
-          <AlertCircle size={32} color="#64748B" />
-          <p style={{ fontWeight: 600, color: '#94A3B8' }}>No Graph Topology Loaded</p>
-          <p style={{ fontSize: 11.5 }}>
-            Run the pipeline or upload datasets to generate the cross-layer entity graph.
-          </p>
+      <div ref={containerRef} className="graph-container empty">
+        <div className="graph-empty">
+          <AlertCircle size={28} />
+          <h3>No Graph Data</h3>
+          <p>Analysis completed but produced no graph relationships for this dataset -- this is a valid result when no wallets or correlations were found.</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="graph-panel" ref={containerRef}>
-      {/* Floating HUD Top Controls */}
-      <div className="graph-hud-top">
-        {/* 2D / 3D Switcher */}
-        <div className="graph-mode-toggle">
-          <button
-            className={`mode-btn ${mode === '2d' ? 'active' : ''}`}
-            onClick={() => setMode('2d')}
-            title="Switch to 2D Canvas View (Fast & Crisp)"
-          >
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <Square size={12} />
-              2D Canvas
-            </span>
-          </button>
-          <button
-            className={`mode-btn ${mode === '3d' ? 'active' : ''}`}
-            onClick={() => {
-              try {
-                setMode('3d')
-              } catch (e) {
-                setWebglError(true)
-                setMode('2d')
-              }
-            }}
-            title="Switch to 3D WebGL Spatial Graph"
-          >
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <Box size={12} />
-              3D Spatial
-            </span>
-          </button>
+    <div ref={containerRef} className="graph-container">
+      <div className="graph-header">
+        <div className="graph-title">
+          <h2>Investigation Graph</h2>
+          <span>{layout.nodes.length} entities · {layout.links.length} relationships</span>
         </div>
 
-        {/* Toolbar: Zoom, Fit, Reset, Center */}
-        <div className="graph-controls-toolbar">
-          <button className="ctrl-btn" onClick={handleZoomIn} title="Zoom in">
-            <ZoomIn size={14} />
-          </button>
-          <button className="ctrl-btn" onClick={handleZoomOut} title="Zoom out">
-            <ZoomOut size={14} />
-          </button>
-          <button className="ctrl-btn" onClick={handleFit} title="Fit entire graph">
-            <Maximize2 size={13} />
-          </button>
-          <button className="ctrl-btn" onClick={handleReset} title="Reset camera view">
-            <RotateCcw size={13} />
-          </button>
-          {selectedEntityId && (
-            <button
-              className="ctrl-btn"
-              onClick={handleCenterSelected}
-              title="Focus selected entity"
-              style={{ color: '#0EA5E9' }}
-            >
-              <Crosshair size={14} />
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Main Graph Viewport */}
-      <div className="graph-canvas-container">
-        {mode === '2d' ? (
-          <GraphView2D
-            fgRef={fgRef}
-            width={dims.width}
-            height={dims.height}
-            graphData={fgData}
-            selectedEntityId={selectedEntityId}
-            onSelectEntity={onSelectEntity}
-          />
-        ) : (
-          <GraphView3D
-            fgRef={fgRef}
-            width={dims.width}
-            height={dims.height}
-            graphData={fgData}
-            selectedEntityId={selectedEntityId}
-            onSelectEntity={onSelectEntity}
-          />
+        {selectedEntityId && (
+          <div className="graph-focus-chip">
+            <Crosshair size={12} />
+            Focused network
+          </div>
         )}
       </div>
 
-      {/* Graph Legend Overlay */}
+      <div className="graph-canvas">
+        <GraphView2D
+          nodes={layout.nodes}
+          links={layout.links}
+          bounds={layout.bounds}
+          selectedEntityId={selectedEntityId}
+          onSelectEntity={onSelectEntity}
+          onLinkClick={handleLinkClick}
+          zoomLevel={zoomLevel}
+          width={dims.width}
+          height={dims.height}
+        />
+
+        {linkInfo && (
+          <div className="graph-link-detail">
+            <div className="graph-link-detail-header">
+              <span className="graph-link-detail-title">{linkInfo.relationship}</span>
+              <button className="graph-link-detail-close" onClick={() => setLinkInfo(null)}>
+                <X size={13} />
+              </button>
+            </div>
+            <div className="graph-link-detail-text">{linkInfo.text}</div>
+            {(typeof linkInfo.confidence === 'number' || linkInfo.evidence) && (
+              <div className="graph-link-detail-facts">
+                {typeof linkInfo.confidence === 'number' && (
+                  <div className="graph-link-detail-fact">
+                    <span>Confidence</span>
+                    <b>{formatPercent(linkInfo.confidence)}</b>
+                  </div>
+                )}
+                {linkInfo.evidence?.port !== undefined && (
+                  <div className="graph-link-detail-fact">
+                    <span>Port</span>
+                    <b>{linkInfo.evidence.port}</b>
+                  </div>
+                )}
+                {typeof linkInfo.evidence?.time_delta_seconds === 'number' && (
+                  <div className="graph-link-detail-fact">
+                    <span>Δt</span>
+                    <b>{linkInfo.evidence.time_delta_seconds}s</b>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="graph-controls">
+        <button onClick={handleZoomIn} title="Zoom In"><ZoomIn size={16} /></button>
+        <button onClick={handleZoomOut} title="Zoom Out"><ZoomOut size={16} /></button>
+        <button onClick={handleReset} title="Reset Zoom"><RotateCcw size={16} /></button>
+        {onToggleFullscreen && (
+          <button onClick={onToggleFullscreen} title={isFullscreen ? 'Exit Fullscreen' : 'View Fullscreen'}>
+            <Maximize2 size={16} />
+          </button>
+        )}
+        {onClose && (
+          <button onClick={onClose} title="Close Fullscreen"><X size={16} /></button>
+        )}
+      </div>
+
       <GraphLegend />
     </div>
+  )
+}
+
+export default function GraphContainer({
+  graphData,
+  selectedEntityId,
+  onSelectEntity,
+  transactions = [],
+  loading = false,
+}) {
+  const [isFullscreen, setIsFullscreen] = useState(false)
+
+  const fullGraph = useMemo(() => {
+    if (!graphData || !graphData.nodes) return null
+    return {
+      nodes: graphData.nodes.map((n) => ({ ...n })),
+      links: (graphData.edges || graphData.links || []).map((e) => ({ ...e })),
+    }
+  }, [graphData])
+
+  // Selecting an entity narrows the view to a small, readable case map.
+  // The full dataset remains available in the investigation tabs.
+  const fgData = useMemo(() => {
+    if (!fullGraph) return null
+    if (!selectedEntityId) return { nodes: [], links: [] }
+    return connectedNetwork(fullGraph.nodes, fullGraph.links, selectedEntityId)
+  }, [fullGraph, selectedEntityId])
+
+  useEffect(() => {
+    if (!isFullscreen) return
+    const handleKey = (e) => { if (e.key === 'Escape') setIsFullscreen(false) }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [isFullscreen])
+
+  if (loading) {
+    return (
+      <div className="graph-container loading">
+        <div className="graph-loading">
+          <AlertCircle size={24} />
+          <span>Loading investigation graph…</span>
+        </div>
+      </div>
+    )
+  }
+
+  if (!fgData) {
+    return (
+      <div className="graph-container empty">
+        <div className="graph-empty">
+          <AlertCircle size={28} />
+          <h3>No Graph Data</h3>
+          <p>Analysis completed but produced no graph relationships for this dataset -- this is a valid result when no wallets or correlations were found.</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <GraphCanvas
+        fgData={fgData}
+        selectedEntityId={selectedEntityId}
+        onSelectEntity={onSelectEntity}
+        transactions={transactions}
+        isFullscreen={false}
+        onToggleFullscreen={() => setIsFullscreen(true)}
+      />
+
+      {isFullscreen && (
+        <div className="graph-fullscreen-overlay" onClick={(e) => { if (e.target === e.currentTarget) setIsFullscreen(false) }}>
+          <div className="graph-fullscreen-panel">
+            <GraphCanvas
+              fgData={fgData}
+              selectedEntityId={selectedEntityId}
+              onSelectEntity={onSelectEntity}
+              transactions={transactions}
+              isFullscreen
+              onClose={() => setIsFullscreen(false)}
+            />
+          </div>
+        </div>
+      )}
+    </>
   )
 }

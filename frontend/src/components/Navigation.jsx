@@ -1,100 +1,88 @@
 import React from 'react'
 import {
   ShieldAlert,
-  Activity,
-  GitGraph,
   Layers,
   UploadCloud,
-  Play,
-  RotateCw,
   Clock,
-  User,
   LayoutDashboard,
   Search,
+  LogOut,
 } from 'lucide-react'
 
 export default function Navigation({
   activeTab,
   onTabChange,
-  pipelineStatus,
   lastUpdated,
-  onRunPipeline,
-  isRunning,
+  hasAnalyzed,
+  onLogout,
 }) {
   const formatTime = (ts) => {
-    if (!ts) return 'Never'
+    if (!ts) return null
     const date = new Date(ts * 1000)
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
   }
 
+  // Journey order per spec: Dashboard/Pipeline -> Overview -> Investigate ->
+  // Transactions -> Alerts. Investigate/Transactions/Alerts are gated until
+  // an analysis actually exists, so the app can never look pre-populated.
   const tabs = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'investigate', label: 'Investigate', icon: Search },
-    { id: 'transactions', label: 'Transactions', icon: Layers },
-    { id: 'graph', label: 'Network Graph', icon: GitGraph },
-    { id: 'alerts', label: 'Alerts', icon: ShieldAlert },
-    { id: 'pipeline', label: 'Data / Pipeline', icon: UploadCloud },
+    { id: 'pipeline', label: 'Dataset Input', icon: UploadCloud, gated: false },
+    { id: 'dashboard', label: 'Overview', icon: LayoutDashboard, gated: false },
+    { id: 'investigate', label: 'Investigate', icon: Search, gated: true },
+    { id: 'transactions', label: 'Transactions', icon: Layers, gated: true },
+    { id: 'alerts', label: 'Alerts', icon: ShieldAlert, gated: true },
   ]
 
   return (
-    <header className="top-nav">
-      <div className="nav-brand">
+    <nav className="navigation">
+      <div className="navigation-brand">
         <div className="brand-icon">
-          <ShieldAlert size={18} />
+          <ShieldAlert size={17} />
         </div>
-        <div className="brand-title">
-          <span>NexusTrace</span>
-          <span className="brand-badge">SIH26146</span>
+        <div>
+          <h1>NEXUSTRACE</h1>
+          <div className="brand-subtitle">Bitcoin Intelligence &amp; Investigation</div>
         </div>
       </div>
 
-      <nav className="nav-tabs">
+      <div className="navigation-tabs">
         {tabs.map((tab) => {
           const Icon = tab.icon
           const isActive = activeTab === tab.id
+          const isDisabled = tab.gated && !hasAnalyzed
           return (
             <button
               key={tab.id}
-              className={`nav-tab-btn ${isActive ? 'active' : ''}`}
-              onClick={() => onTabChange(tab.id)}
+              onClick={() => !isDisabled && onTabChange(tab.id)}
+              disabled={isDisabled}
+              title={isDisabled ? 'Analyze a dataset first' : undefined}
+              className={`navigation-tab ${isActive ? 'active' : ''}`}
             >
-              <Icon size={14} />
+              <Icon size={15} />
               <span>{tab.label}</span>
             </button>
           )
         })}
-      </nav>
+      </div>
 
-      <div className="nav-actions">
-        <div className="pipeline-status-badge">
-          <span
-            className={`status-dot ${isRunning ? 'running' : pipelineStatus === 'error' ? 'error' : ''}`}
-          />
-          <span>{isRunning ? 'RUNNING' : (pipelineStatus || 'READY').toUpperCase()}</span>
+      <div className="navigation-right">
+        <div className="pipeline-status">
+          <div className={`status-dot ${hasAnalyzed ? '' : 'running'}`} />
+          <span>{hasAnalyzed ? 'ANALYSIS ACTIVE' : 'NO ANALYSIS'}</span>
         </div>
 
         {lastUpdated && (
-          <div className="analyst-badge" title="Last dataset synchronization">
-            <Clock size={12} />
+          <div className="last-updated">
+            <Clock size={14} />
             <span>{formatTime(lastUpdated)}</span>
           </div>
         )}
 
-        <button
-          className="btn-primary"
-          onClick={onRunPipeline}
-          disabled={isRunning}
-          title="Re-run cross-layer correlation pipeline"
-        >
-          {isRunning ? <RotateCw size={13} className="spin" /> : <Play size={13} fill="currentColor" />}
-          <span>{isRunning ? 'Processing…' : 'Run Pipeline'}</span>
+        <button className="logout-button" onClick={onLogout} title="Log out">
+          <LogOut size={14} />
+          <span>Log Out</span>
         </button>
-
-        <div className="analyst-badge">
-          <User size={13} />
-          <span>Analyst #NT-842</span>
-        </div>
       </div>
-    </header>
+    </nav>
   )
 }

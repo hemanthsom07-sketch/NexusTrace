@@ -1,7 +1,7 @@
 {
   "name": "nexustrace-frontend",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,17 +9,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "canvas-confetti": "^1.9.4",
-    "lucide-react": "^1.41.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-force-graph-2d": "^1.29.1",
-    "react-force-graph-3d": "^1.24.3",
-    "three": "^0.167.1"
+    "lucide-react": "^0.344.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.1",
-    "puppeteer-core": "^25.10.0",
-    "vite": "^5.4.2"
+    "@vitejs/plugin-react": "^4.2.1",
+    "puppeteer-core": "^22.4.0",
+    "vite": "^5.1.4"
   }
 }

@@ -1,172 +1,136 @@
 import React, { useState, useMemo } from 'react'
-import { Search, ArrowUpDown, Filter, AlertTriangle, Layers, Globe } from 'lucide-react'
+import { Search } from 'lucide-react'
+import { formatPercent } from '../lib/format'
+
+const SORT_OPTIONS = [
+  { id: 'risk', label: 'Risk Score', get: (l) => l.anomaly_score || 0 },
+  { id: 'velocity', label: 'Velocity', get: (l) => l.feature_snapshot?.transaction_velocity || 0 },
+  { id: 'fanout', label: 'Fan-out', get: (l) => l.feature_snapshot?.fan_out_count || 0 },
+  { id: 'fanin', label: 'Fan-in', get: (l) => l.feature_snapshot?.fan_in_count || 0 },
+  { id: 'outgoing', label: 'Outgoing BTC', get: (l) => l.feature_snapshot?.total_out_amount || 0 },
+]
+
+function topIndicators(lead) {
+  // Reuses the real, backend-generated reasons -- shortened to a couple of
+  // scannable chips instead of full sentences. No invented indicators.
+  return (lead.reasons || []).slice(0, 2).map((r) => {
+    const short = r.split('(')[0].trim()
+    return short.charAt(0).toUpperCase() + short.slice(1)
+  })
+}
 
 export default function LeadList({ leads = [], selectedWallet, onSelectWallet }) {
-  const [searchTerm, setSearchTerm] = useState('')
-  const [severityFilter, setSeverityFilter] = useState('ALL') // ALL | HIGH | MEDIUM | LOW
-  const [sortBy, setSortBy] = useState('score') // score | velocity | fanout | amount
+  const [filter, setFilter] = useState('ALL')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [sortBy, setSortBy] = useState('risk')
 
-  // Multi-field search and filtering
   const filteredLeads = useMemo(() => {
-    let result = [...leads]
-
-    // Severity Filter
-    if (severityFilter !== 'ALL') {
-      result = result.filter((l) => l.severity === severityFilter)
-    }
-
-    // Search term across wallet, related_txids, and related_ips
-    if (searchTerm.trim()) {
-      const term = searchTerm.trim().toLowerCase()
-      result = result.filter((l) => {
-        if (l.wallet.toLowerCase().includes(term)) return true
-        if (l.related_txids?.some((tx) => tx.toLowerCase().includes(term))) return true
-        if (l.related_ips?.some((ip) => ip.toLowerCase().includes(term))) return true
-        return false
+    const sortFn = SORT_OPTIONS.find((s) => s.id === sortBy)?.get || (() => 0)
+    const query = searchQuery.trim().toLowerCase()
+    return leads
+      .filter((lead) => {
+        const matchesSeverity = filter === 'ALL' || lead.severity === filter
+        const matchesSearch =
+          !query ||
+          lead.wallet.toLowerCase().includes(query) ||
+          (lead.related_txids || []).some((tx) => tx.toLowerCase().includes(query)) ||
+          (lead.related_ips || []).some((ip) => ip.toLowerCase().includes(query))
+        return matchesSeverity && matchesSearch
       })
-    }
-
-    // Sorting
-    result.sort((a, b) => {
-      if (sortBy === 'score') return b.anomaly_score - a.anomaly_score
-      if (sortBy === 'velocity') {
-        const vA = a.feature_snapshot?.transaction_velocity || 0
-        const vB = b.feature_snapshot?.transaction_velocity || 0
-        return vB - vA
-      }
-      if (sortBy === 'fanout') {
-        const fA = a.feature_snapshot?.fan_out_count || 0
-        const fB = b.feature_snapshot?.fan_out_count || 0
-        return fB - fA
-      }
-      if (sortBy === 'amount') {
-        const aA = a.feature_snapshot?.total_out_amount || 0
-        const aB = b.feature_snapshot?.total_out_amount || 0
-        return aB - aA
-      }
-      return 0
-    })
-
-    return result
-  }, [leads, severityFilter, searchTerm, sortBy])
-
-  const counts = useMemo(() => {
-    return {
-      ALL: leads.length,
-      HIGH: leads.filter((l) => l.severity === 'HIGH').length,
-      MEDIUM: leads.filter((l) => l.severity === 'MEDIUM').length,
-      LOW: leads.filter((l) => l.severity === 'LOW').length,
-    }
-  }, [leads])
+      .slice()
+      .sort((a, b) => sortFn(b) - sortFn(a))
+  }, [leads, filter, searchQuery, sortBy])
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      {/* Search & Filter Toolbar */}
-      <div className="search-filter-bar">
-        <div className="search-input-wrapper">
-          <Search size={14} className="search-icon" />
+    <div className="lead-list">
+      <div className="lead-list-header">
+        <div className="lead-list-title-row">
+          <h2>Investigation Queue</h2>
+          <span className="lead-count">{filteredLeads.length}</span>
+        </div>
+
+        <div className="search-box">
+          <Search size={14} />
           <input
             type="text"
-            className="search-input"
-            placeholder="Search wallet, TXID, or IP node…"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Search wallet, TXID or IP"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
           />
         </div>
+      </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div className="filter-pills">
-            {['ALL', 'HIGH', 'MEDIUM', 'LOW'].map((sev) => (
-              <button
-                key={sev}
-                className={`filter-pill ${sev.toLowerCase()} ${severityFilter === sev ? 'active' : ''}`}
-                onClick={() => setSeverityFilter(sev)}
-              >
-                {sev} ({counts[sev] || 0})
-              </button>
-            ))}
-          </div>
+      <div className="severity-filters">
+        {['ALL', 'HIGH', 'MEDIUM', 'LOW'].map((sev) => (
+          <button
+            key={sev}
+            onClick={() => setFilter(sev)}
+            className={filter === sev ? 'active' : ''}
+          >
+            {sev}
+          </button>
+        ))}
+      </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ fontSize: 10, color: '#64748B', textTransform: 'uppercase' }}>Sort:</span>
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              style={{
-                background: '#101726',
-                border: '1px solid #1E2D47',
-                color: '#94A3B8',
-                borderRadius: 4,
-                fontSize: 11,
-                padding: '2px 4px',
-                outline: 'none',
-              }}
-            >
-              <option value="score">Risk Score</option>
-              <option value="velocity">Velocity</option>
-              <option value="fanout">Fan-out</option>
-              <option value="amount">Outgoing BTC</option>
-            </select>
-          </div>
+      <div className="queue-sort">
+        <span>Sort</span>
+        <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+          {SORT_OPTIONS.map((opt) => (
+            <option key={opt.id} value={opt.id}>{opt.label}</option>
+          ))}
+        </select>
+      </div>
+
+      {filteredLeads.length === 0 ? (
+        <div className="empty-state">
+          <p>
+            {leads.length === 0
+              ? 'Analysis completed but no wallets were flagged in this dataset.'
+              : 'No investigation leads match your filter criteria.'}
+          </p>
         </div>
-      </div>
-
-      {/* Table Header */}
-      <div className="lead-table-header">
-        <span>Wallet / Indicators</span>
-        <span style={{ textAlign: 'right' }}>Score</span>
-        <span style={{ textAlign: 'right' }}>Severity</span>
-      </div>
-
-      {/* Table Body */}
-      <div className="lead-table-body">
-        {filteredLeads.length === 0 ? (
-          <div className="empty-state" style={{ padding: 24, textAlign: 'center', color: '#64748B' }}>
-            No investigation leads match the active filters.
-          </div>
-        ) : (
-          filteredLeads.map((lead) => {
+      ) : (
+        <div className="lead-table">
+          {filteredLeads.map((lead) => {
             const isSelected = selectedWallet === lead.wallet
-            const isHigh = lead.severity === 'HIGH'
-            const txCount = lead.related_txids?.length || 0
-            const ipCount = lead.related_ips?.length || 0
-            const outAmount = lead.feature_snapshot?.total_out_amount ?? 0
+            const sev = (lead.severity || 'LOW').toLowerCase()
 
             return (
               <button
                 key={lead.wallet}
-                className={`lead-item ${isSelected ? 'selected' : ''}`}
                 onClick={() => onSelectWallet(lead.wallet)}
+                className={`queue-card ${isSelected ? 'selected' : ''}`}
               >
-                <div className="lead-wallet-col">
-                  <span className="wallet-address" title={lead.wallet}>
-                    {lead.wallet}
+                <div className="queue-card-top">
+                  <span className={`severity severity-${sev}`}>{lead.severity}</span>
+                  <span className={`queue-card-score severity-${sev}`}>
+                    {formatPercent(lead.anomaly_score)}
                   </span>
-                  <div className="wallet-subinfo">
-                    {outAmount > 0 && <span>{outAmount.toFixed(1)} BTC</span>}
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                      <Layers size={9} /> {txCount} tx
-                    </span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                      <Globe size={9} /> {ipCount} ip
-                    </span>
+                </div>
+
+                <div>
+                  <div className="queue-card-id">{lead.wallet}</div>
+                  <div className="queue-card-type">WALLET</div>
+                </div>
+
+                <div className="queue-card-meta">
+                  <span>{lead.related_txids?.length || 0} TX</span>
+                  <span>•</span>
+                  <span>{lead.related_ips?.length || 0} IP</span>
+                </div>
+
+                {topIndicators(lead).length > 0 && (
+                  <div className="queue-card-indicators">
+                    {topIndicators(lead).map((ind, i) => (
+                      <span key={i} className="queue-indicator-chip">{ind}</span>
+                    ))}
                   </div>
-                </div>
-
-                <div className={`lead-score-col ${isHigh ? 'high' : ''}`} style={{ textAlign: 'right' }}>
-                  {lead.anomaly_score.toFixed(3)}
-                </div>
-
-                <div style={{ textAlign: 'right' }}>
-                  <span className={`severity-tag ${lead.severity.toLowerCase()}`}>
-                    {lead.severity}
-                  </span>
-                </div>
+                )}
               </button>
             )
-          })
-        )}
-      </div>
+          })}
+        </div>
+      )}
     </div>
   )
 }

@@ -2,10 +2,16 @@ import React from 'react'
 import LeadList from '../LeadList'
 import GraphContainer from '../Graph/GraphContainer'
 import EntityInspector from '../Inspector/EntityInspector'
+import InvestigationTabs from '../Investigation/InvestigationTabs'
+import AnalysisSourceBadge from '../AnalysisSourceBadge'
 
 export default function InvestigateView({
   leads,
   graphData,
+  transactions,
+  analysisSource,
+  runStats,
+  analyzedAt,
   selectedEntity,
   selectedWallet,
   leadDetail,
@@ -13,58 +19,60 @@ export default function InvestigateView({
   ipDetail,
   onSelectWallet,
   onSelectEntity,
-  onSelectTx,
-  onSelectIp,
-  onFocusInGraph,
-  onShowToast,
   loadingGraph,
+  onGenerateReport,
+  reportLoading,
 }) {
   return (
-    <div className="investigate-grid">
-      {/* Column 1: Investigation Leads */}
-      <section className="workspace-panel">
-        <div className="panel-header">
-          <div className="panel-title">
-            <span>Investigation Leads</span>
-            <span className="panel-count-badge">{leads.length}</span>
-          </div>
-        </div>
-        <LeadList
-          leads={leads}
-          selectedWallet={selectedWallet}
-          onSelectWallet={onSelectWallet}
-        />
-      </section>
+    <div className="investigate-view">
+      <AnalysisSourceBadge
+        analysisSource={analysisSource}
+        runStats={runStats}
+        leadsCount={leads?.length || 0}
+        analyzedAt={analyzedAt}
+        onGenerateReport={onGenerateReport}
+        reportLoading={reportLoading}
+      />
 
-      {/* Column 2: Centerpiece Force Graph */}
-      <section className="workspace-panel" style={{ background: '#05080E' }}>
-        <GraphContainer
-          graphData={graphData}
-          selectedEntityId={selectedEntity?.fullId}
-          onSelectEntity={onSelectEntity}
-          loading={loadingGraph}
-        />
-      </section>
+      <div className="investigate-columns">
+        <aside className="investigate-leads">
+          <LeadList
+            leads={leads}
+            selectedWallet={selectedWallet}
+            onSelectWallet={onSelectWallet}
+          />
+        </aside>
 
-      {/* Column 3: Entity Intelligence Inspector */}
-      <section className="workspace-panel">
-        <div className="panel-header">
-          <div className="panel-title">
-            <span>Evidence &amp; Intelligence</span>
-          </div>
-        </div>
-        <EntityInspector
-          selectedEntity={selectedEntity}
-          leadDetail={leadDetail}
-          transactionDetail={transactionDetail}
-          ipDetail={ipDetail}
-          onSelectWallet={onSelectWallet}
-          onSelectTx={onSelectTx}
-          onSelectIp={onSelectIp}
-          onFocusInGraph={onFocusInGraph}
-          onShowToast={onShowToast}
-        />
-      </section>
+        <main className="investigate-graph">
+          <GraphContainer
+            graphData={graphData}
+            selectedEntityId={selectedEntity?.fullId}
+            onSelectEntity={onSelectEntity}
+            transactions={transactions}
+            loading={loadingGraph}
+          />
+        </main>
+
+        <aside className="investigate-inspector">
+          <EntityInspector
+            selectedEntity={selectedEntity}
+            leads={leads}
+            transactions={transactions}
+            leadDetail={leadDetail}
+            transactionDetail={transactionDetail}
+            ipDetail={ipDetail}
+          />
+        </aside>
+      </div>
+
+      <InvestigationTabs
+        selectedEntity={selectedEntity}
+        leadDetail={leadDetail}
+        transactionDetail={transactionDetail}
+        ipDetail={ipDetail}
+        transactions={transactions}
+        onSelectEntity={onSelectEntity}
+      />
     </div>
   )
 }
