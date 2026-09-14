@@ -45,6 +45,7 @@ export function buildReportHtml({
   primaryLeadDetail,
   transactionDetails = [],
   ipDetails = [],
+  clusters = [],
   analyzedAt,
 }) {
   const isSample = analysisSource?.type === 'sample'
@@ -104,11 +105,15 @@ export function buildReportHtml({
   const geoRows = ipDetails
     .filter(Boolean)
     .map((geo) => {
-      const classification = geo.classification === 'private' ? 'PRIVATE NETWORK' : 'PUBLIC IP'
-      const location = geo.geoip_available
-        ? [geo.city, geo.region, geo.country].filter(Boolean).join(', ') || 'Unavailable'
-        : 'Unavailable'
-      return `<tr><td class="rpt-mono">${escapeHtml(geo.ip)}</td><td>${classification}</td><td>${escapeHtml(location)}</td><td class="rpt-mono">${escapeHtml(geo.asn) || 'Unavailable'}</td><td>${escapeHtml(geo.org) || 'Unavailable'}</td></tr>`
+      const networkType = String(geo.network_type || geo.classification || '').toLowerCase()
+      const isPrivate = geo.is_private || networkType.includes('private') || networkType.includes('internal')
+      const isDocumentation = networkType.includes('documentation') || networkType.includes('reserved')
+      const classification = isPrivate ? 'PRIVATE / INTERNAL' : isDocumentation ? 'DOCUMENTATION / RESERVED' : 'PUBLIC ROUTABLE'
+      const location = isPrivate || isDocumentation
+        ? 'No public geolocation'
+        : (geo.geoip_available ? [geo.city, geo.region, geo.country].filter(Boolean).join(', ') || 'Unavailable' : 'Unavailable')
+      const source = geo.geoip_source || geo.source || 'Unavailable'
+      return `<tr><td class="rpt-mono">${escapeHtml(geo.ip)}</td><td>${classification}</td><td>${escapeHtml(location)}</td><td class="rpt-mono">${escapeHtml(geo.asn) || 'Unavailable'}</td><td>${escapeHtml(geo.org) || 'Unavailable'}<br/><span style="font-size:9px;color:#64748b">${escapeHtml(source)}</span></td></tr>`
     })
     .join('')
 
@@ -178,8 +183,18 @@ export function buildReportHtml({
       ${kv('Type', 'Wallet')}
       <div class="rpt-kv"><span>Risk</span><b><span class="rpt-badge rpt-badge-${(primary.severity || 'low').toLowerCase()}">${escapeHtml(primary.severity)}</span></b></div>
       ${kv('Risk Score', formatPercent(primary.anomaly_score))}
+      <p class="rpt-text">Risk score is a dataset-relative anomaly ranking, not a probability of illicit activity.</p>
     </div>
   `) : ''}
+
+  ${primary && clusters.find((cluster) => cluster.wallets?.includes(primary.wallet)) ? (() => {
+    const cluster = clusters.find((item) => item.wallets?.includes(primary.wallet))
+    return section('Entity Cluster', `
+      <p class="rpt-text"><b>${escapeHtml(cluster.cluster_id)}</b> — Common Input Ownership heuristic grouped ${cluster.wallets.length} wallets as a candidate entity.</p>
+      <p class="rpt-text">Members: ${cluster.wallets.map(escapeHtml).join(', ')}</p>
+      <p class="rpt-text">This is an investigative heuristic, not proof of common control.</p>
+    `)
+  })() : ''}
 
   ${primary ? section('Why This Entity Was Flagged', `
     <p class="rpt-text">${escapeHtml(explanation?.summary || 'No deterministic explanation available for this entity.')}</p>
@@ -191,12 +206,12 @@ export function buildReportHtml({
   `) : ''}
 
   ${txRows ? section('Related Transactions', `
-    <table><thead><tr><th>TXID</th><th>Time</th><th>BTC</th><th>Correlated IP</th><th>Confidence</th></tr></thead>
+    <table><thead><tr><th>TXID</th><th>Time</th><th>BTC</th><th>Correlated IP</th><th>Correlation Confidence</th></tr></thead>
     <tbody>${txRows}</tbody></table>
   `) : ''}
 
   ${correlationRows ? section('Network Correlation', `
-    <table><thead><tr><th>IP</th><th>Transaction</th><th>Confidence</th><th>Time Difference</th><th>Port</th></tr></thead>
+    <table><thead><tr><th>IP</th><th>Transaction</th><th>Correlation Confidence</th><th>Time Difference</th><th>Port</th></tr></thead>
     <tbody>${correlationRows}</tbody></table>
   `) : ''}
 

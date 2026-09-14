@@ -46,9 +46,11 @@ export default function EntityInspector({
   selectedEntity,
   leads = [],
   transactions = [],
+  clusters = [],
   leadDetail,
   transactionDetail,
   ipDetail,
+  onSelectEntity,
 }) {
   const explanation = useMemo(() => {
     if (selectedEntity?.type !== 'wallet' || !leadDetail) return null
@@ -102,6 +104,7 @@ export default function EntityInspector({
             <span className={`pill severity-${(severity || 'low').toLowerCase()}`}>
               {severity || 'LOW'}
             </span>
+            <div className="explanation-note">Risk Score is a dataset-relative anomaly ranking; 100% means most anomalous in this analysis, not 100% certainty of illicit activity.</div>
           </div>
 
           {explanation && (
@@ -115,6 +118,32 @@ export default function EntityInspector({
           )}
 
           <WhyFlaggedCard reasons={leadDetail.reasons || []} />
+
+          {selectedEntity.type === 'wallet' && (() => {
+            const cluster = clusters.find((item) => item.wallets?.includes(selectedEntity.id))
+            if (!cluster) return null
+            return (
+              <div className="inspector-section">
+                <h3>Entity Cluster</h3>
+                <div className="cluster-card">
+                  <div className="cluster-card-top">
+                    <strong>{cluster.cluster_id}</strong>
+                    <span>{cluster.wallets.length} wallets</span>
+                  </div>
+                  <p>Common-input ownership heuristic grouped these wallets as a potentially controlled entity.</p>
+                  <div className="cluster-wallets">
+                    {cluster.wallets.map((wallet) => (
+                      <span key={wallet} className="cluster-wallet">{wallet}</span>
+                    ))}
+                  </div>
+                  {cluster.associated_ips?.length > 0 && (
+                    <div className="cluster-associated">Associated IPs: {cluster.associated_ips.join(', ')}</div>
+                  )}
+                  <div className="explanation-note">Forensic heuristic, not an ML classification. Co-spending alone does not prove common control.</div>
+                </div>
+              </div>
+            )
+          })()}
 
           <div className="inspector-section">
             <h3>Model Signals</h3>
@@ -154,7 +183,7 @@ export default function EntityInspector({
                   <strong>{correlationEvidence.time_delta_seconds ?? 'N/A'}s</strong>
                 </div>
                 <div>
-                  <span>Confidence</span>
+                  <span>Correlation Confidence</span>
                   <strong>{formatPercent(correlationEvidence.confidence)}</strong>
                 </div>
                 <div>

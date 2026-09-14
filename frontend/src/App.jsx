@@ -16,6 +16,7 @@ import {
   getTransactionDetail,
   getIpDetail,
   getLeads,
+  getClusters,
 } from './api/client'
 import { buildReportHtml } from './lib/report'
 
@@ -40,6 +41,7 @@ export default function App() {
   const [leads, setLeads] = useState([])
   const [transactions, setTransactions] = useState([])
   const [graphData, setGraphData] = useState({ nodes: [], links: [] })
+  const [clusters, setClusters] = useState([])
 
   const [selectedWallet, setSelectedWallet] = useState(null)
   const [selectedEntity, setSelectedEntity] = useState(null)
@@ -85,6 +87,7 @@ export default function App() {
     setLeads([])
     setTransactions([])
     setGraphData({ nodes: [], links: [] })
+    setClusters([])
     setSelectedWallet(null)
     setSelectedEntity(null)
     setLeadDetail(null)
@@ -104,19 +107,22 @@ export default function App() {
       // request, and must never be treated the same as the analysis
       // itself failing. /api/transactions never 404s (always returns a
       // list, possibly empty).
-      const [leadsRes, graphRes, txsRes] = await Promise.allSettled([
+      const [leadsRes, graphRes, txsRes, clustersRes] = await Promise.allSettled([
         getLeads(),
         getGraph(),
         listTransactions(),
+        getClusters(),
       ])
 
       const loadedLeads = leadsRes.status === 'fulfilled' && Array.isArray(leadsRes.value) ? leadsRes.value : []
       const loadedGraph = graphRes.status === 'fulfilled' && graphRes.value ? graphRes.value : { nodes: [], links: [] }
       const loadedTxs = txsRes.status === 'fulfilled' && Array.isArray(txsRes.value) ? txsRes.value : []
+      const loadedClusters = clustersRes.status === 'fulfilled' && Array.isArray(clustersRes.value) ? clustersRes.value : []
 
       setLeads(loadedLeads)
       setGraphData(loadedGraph)
       setTransactions(loadedTxs)
+      setClusters(loadedClusters)
 
       if (loadedLeads.length > 0) {
         const firstWallet = loadedLeads[0].wallet
@@ -127,7 +133,7 @@ export default function App() {
       // Only warn about a fetch that failed for a real reason (backend
       // down, network error, etc) -- not the expected "run pipeline
       // first" 404 for a dataset with no leads/correlations.
-      const unexpectedFailure = [leadsRes, graphRes, txsRes].find(
+      const unexpectedFailure = [leadsRes, graphRes, txsRes, clustersRes].find(
         (r) => r.status === 'rejected' && !/run pipeline first/i.test(r.reason?.message || '')
       )
       if (unexpectedFailure) {
@@ -137,6 +143,41 @@ export default function App() {
       setLoadingGraph(false)
     }
   }, [showToast])
+
+  // Restore the current backend analysis after a browser refresh. The backend
+  // intentionally stores only the latest analysis, so this does not resurrect
+  // an older history entry; it simply prevents a mid-demo refresh from hiding
+  // data that is still present in SQLite.
+  useEffect(() => {
+    if (!authed || analysisState !== ANALYSIS_STATE.NO_DATA) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const [leadsRes, graphRes, txsRes, clustersRes] = await Promise.allSettled([
+          getLeads(), getGraph(), listTransactions(), getClusters(),
+        ])
+        const loadedLeads = leadsRes.status === 'fulfilled' ? leadsRes.value : []
+        const loadedGraph = graphRes.status === 'fulfilled' ? graphRes.value : { nodes: [], edges: [] }
+        const loadedTxs = txsRes.status === 'fulfilled' ? txsRes.value : []
+        const loadedClusters = clustersRes.status === 'fulfilled' ? clustersRes.value : []
+        if (cancelled || (!loadedLeads.length && !loadedTxs.length && !(loadedGraph?.nodes?.length))) return
+        setLeads(Array.isArray(loadedLeads) ? loadedLeads : [])
+        setGraphData(loadedGraph || { nodes: [], edges: [] })
+        setTransactions(Array.isArray(loadedTxs) ? loadedTxs : [])
+        setClusters(Array.isArray(loadedClusters) ? loadedClusters : [])
+        setRunStats(null)
+        setAnalysisSource({ type: 'restored', label: 'Current backend analysis' })
+        setAnalysisState(ANALYSIS_STATE.ANALYSIS_COMPLETE)
+        if (loadedLeads[0]) {
+          setSelectedWallet(loadedLeads[0].wallet)
+          setSelectedEntity({ type: 'wallet', id: loadedLeads[0].wallet, fullId: `wallet:${loadedLeads[0].wallet}` })
+        }
+      } catch {
+        // No analysis stored yet; remain on Dataset Input without noise.
+      }
+    })()
+    return () => { cancelled = true }
+  }, [authed, analysisState])
 
   // Every entry point into a fresh analysis (upload-dual, upload-merged, or
   // the explicit sample run) funnels through this single handler so the
@@ -211,6 +252,7 @@ export default function App() {
         analysisSource,
         runStats,
         leads,
+        clusters,
         primaryLeadDetail,
         transactionDetails,
         ipDetails,
@@ -230,7 +272,7 @@ export default function App() {
     } finally {
       setReportLoading(false)
     }
-  }, [leads, selectedEntity, analysisSource, runStats, lastUpdated, showToast])
+  }, [leads, clusters, selectedEntity, analysisSource, runStats, lastUpdated, showToast])
 
   useEffect(() => {
     if (!selectedEntity) {
@@ -313,6 +355,7 @@ export default function App() {
             stats={stats}
             leads={leads}
             transactions={transactions}
+            clusters={clusters}
             hasAnalyzed={hasAnalyzed}
             analysisSource={analysisSource}
             onInvestigateWallet={handleInvestigateWallet}
@@ -327,6 +370,7 @@ export default function App() {
               leads={leads}
               graphData={graphData}
               transactions={transactions}
+              clusters={clusters}
               analysisSource={analysisSource}
               runStats={runStats}
               analyzedAt={lastUpdated}

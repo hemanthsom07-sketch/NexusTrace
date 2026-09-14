@@ -9,6 +9,7 @@ export default function InvestigateView({
   leads,
   graphData,
   transactions,
+  clusters,
   analysisSource,
   runStats,
   analyzedAt,
@@ -58,9 +59,11 @@ export default function InvestigateView({
             selectedEntity={selectedEntity}
             leads={leads}
             transactions={transactions}
+            clusters={clusters}
             leadDetail={leadDetail}
             transactionDetail={transactionDetail}
             ipDetail={ipDetail}
+            onSelectEntity={onSelectEntity}
           />
         </aside>
       </div>

@@ -25,6 +25,11 @@ CREATE TABLE IF NOT EXISTS transactions_cache (
     transactions_json TEXT NOT NULL,
     updated_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS clusters_cache (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    clusters_json TEXT NOT NULL,
+    updated_at REAL NOT NULL
+);
 """
 
 @contextmanager
@@ -103,4 +108,20 @@ def get_transaction(txid: str) -> dict:
     for tx in get_all_transactions():
         if tx["txid"] == txid:
             return tx
+    return None
+
+def replace_clusters(clusters: list[dict]):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM clusters_cache")
+        conn.execute("INSERT INTO clusters_cache VALUES (1, ?, ?)", (json.dumps(clusters), time.time()))
+
+def get_all_clusters() -> list[dict]:
+    with get_conn() as conn:
+        r = conn.execute("SELECT clusters_json FROM clusters_cache WHERE id = 1").fetchone()
+        return json.loads(r["clusters_json"]) if r else []
+
+def get_cluster_for_wallet(wallet: str) -> dict | None:
+    for cluster in get_all_clusters():
+        if wallet in cluster.get("wallets", []):
+            return cluster
     return None

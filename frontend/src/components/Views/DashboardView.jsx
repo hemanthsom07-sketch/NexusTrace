@@ -13,6 +13,7 @@ export default function DashboardView({
   onInvestigateWallet,
   onNavigateTab,
   onGoToPipeline,
+  clusters = [],
 }) {
   const topLead = leads[0]
 
@@ -21,6 +22,11 @@ export default function DashboardView({
     leads.forEach((l) => (l.related_ips || []).forEach((ip) => set.add(ip)))
     return set.size
   }, [leads])
+
+  const clusterWalletCount = useMemo(
+    () => new Set(clusters.flatMap((cluster) => cluster.wallets || [])).size,
+    [clusters]
+  )
 
   const severityCounts = useMemo(() => {
     const counts = { HIGH: 0, MEDIUM: 0, LOW: 0 }
@@ -43,7 +49,7 @@ export default function DashboardView({
             <div className="gated-card-icon"><UploadCloud size={22} /></div>
             <h3>No Analysis Yet</h3>
             <p>
-              Overview will populate with real dataset statistics and an AI-generated
+              Overview will populate with real dataset statistics and an data-driven
               analysis summary once you upload a dataset and run analysis.
             </p>
             <button className="btn btn-primary" onClick={onGoToPipeline}>Go to Dataset Input</button>
@@ -71,7 +77,7 @@ export default function DashboardView({
 
       {analysisSummary && (
         <div className="ai-summary-card">
-          <div className="ai-summary-header"><Sparkles size={13} /> AI Analysis Summary</div>
+          <div className="ai-summary-header"><Sparkles size={13} /> Investigation Summary</div>
           <p className="ai-summary-text">{analysisSummary}</p>
         </div>
       )}
@@ -88,7 +94,7 @@ export default function DashboardView({
               ? `${stats.transactions_ingested} transactions · ${stats.events_ingested || 0} network events ingested`
               : `${transactions.length} transactions analyzed`}
             {analysisSource && (
-              <> · {analysisSource.type === 'sample' ? 'Built-in Sample Dataset' : 'Uploaded Dataset'}</>
+              <> · {analysisSource.type === 'sample' ? 'Built-in Sample Dataset' : analysisSource.type === 'restored' ? 'Current Backend Analysis' : 'Uploaded Dataset'}</>
             )}
           </div>
         </div>
@@ -130,6 +136,24 @@ export default function DashboardView({
       </div>
 
       {stats && <div style={{ marginBottom: 20 }}><KpiBar stats={stats} /></div>}
+
+      <div className="command-grid">
+        <div className="command-card">
+          <div className="command-card-title"><Sparkles size={13} /> Detection Method</div>
+          <div className="command-card-value" style={{ fontSize: 18 }}>Isolation Forest</div>
+          <div className="command-card-sub">Unsupervised anomaly detection · 6 behavioral features · offline</div>
+        </div>
+        <div className="command-card">
+          <div className="command-card-title"><Network size={13} /> Entity Clustering</div>
+          <div className="command-card-value">{clusters.length}</div>
+          <div className="command-card-sub">Common-input ownership clusters · {clusterWalletCount} wallets grouped</div>
+        </div>
+        <div className="command-card">
+          <div className="command-card-title"><ShieldAlert size={13} /> Evidence Coverage</div>
+          <div className="command-card-value">{stats?.links_found ?? 0}</div>
+          <div className="command-card-sub">Network observations correlated to blockchain activity</div>
+        </div>
+      </div>
 
       {topLead && (
         <div className="priority-card">

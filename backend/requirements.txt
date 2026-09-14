@@ -6,7 +6,4 @@ networkx==3.3
 pydantic==2.9.2
 python-multipart==0.0.9
 
-# Optional -- only needed if you drop GeoLite2-City.mmdb / GeoLite2-ASN.mmdb
-# into backend/data/geoip/. The app runs fine without it (GeoIP enrichment
-# just reports "unavailable" instead of country/ASN/coordinates).
-# geoip2==4.8.0
+geoip2==4.8.0

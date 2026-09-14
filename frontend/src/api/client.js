@@ -75,6 +75,10 @@ export function getLeadDetail(wallet) {
   return request(`/api/leads/${encodeURIComponent(wallet)}`)
 }
 
+export function getClusters() {
+  return request('/api/clusters')
+}
+
 export function getGraph() {
   return request('/api/graph')
 }

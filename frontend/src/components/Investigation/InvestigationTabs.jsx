@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
-import { Layers, Clock, Globe, Radio, FileSearch } from 'lucide-react'
+import { Layers, Clock, Globe, Radio, FileSearch, Link2 } from 'lucide-react'
 import TimelineView from '../Inspector/TimelineView'
 import GeoIpCard from '../Inspector/GeoIpCard'
 import { getIpDetail } from '../../api/client'
 import { GLOSSARY, portMeaning } from '../../lib/glossary'
 import { formatPercent } from '../../lib/format'
+import EvidenceChain from './EvidenceChain'
 
 function formatTime(ts) {
   if (!ts && ts !== 0) return 'Unknown'
@@ -84,7 +85,7 @@ export default function InvestigationTabs({
             events.push({
               timestamp: tx.timestamp - ev.time_delta_seconds,
               type: 'NETWORK OBSERVATION',
-              description: `${ev.ip} broadcast observed (Δt ${ev.time_delta_seconds}s, ${formatPercent(ev.confidence)} confidence)`,
+              description: `${ev.ip} broadcast observed (Δt ${ev.time_delta_seconds}s, ${formatPercent(ev.confidence)} correlation confidence)`,
             })
           }
         })
@@ -118,6 +119,7 @@ export default function InvestigationTabs({
     { id: 'transactions', label: 'Transactions', icon: Layers, count: relatedTx.length },
     { id: 'timeline', label: 'Timeline', icon: Clock, count: timelineEvents.length },
     { id: 'geoip', label: 'GeoIP / ASN', icon: Globe, count: ips.length },
+    { id: 'chain', label: 'Evidence Chain', icon: Link2, count: evidenceItems.length },
     { id: 'evidence', label: 'Evidence', icon: FileSearch, count: evidenceItems.length },
   ]
 
@@ -166,7 +168,7 @@ export default function InvestigationTabs({
                   <th>BTC</th>
                   <th>Fee</th>
                   <th>Correlated IP</th>
-                  <th>Confidence</th>
+                  <th>Correlation Confidence</th>
                 </tr>
               </thead>
               <tbody>
@@ -223,6 +225,19 @@ export default function InvestigationTabs({
                 )
               })}
             </div>
+          )
+        )}
+
+        {activeTab === 'chain' && (
+          selectedEntity?.type !== 'wallet' ? (
+            <div className="tab-panel-empty">Select a wallet to build an evidence chain from entity → transaction → network observation → GeoIP/ASN.</div>
+          ) : (
+            <EvidenceChain
+              wallet={selectedEntity.id}
+              leadDetail={leadDetail}
+              transactions={transactions}
+              geoByIp={geoCache}
+            />
           )
         )}
 

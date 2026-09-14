@@ -131,7 +131,7 @@ function GraphCanvas({
               <div className="graph-link-detail-facts">
                 {typeof linkInfo.confidence === 'number' && (
                   <div className="graph-link-detail-fact">
-                    <span>Confidence</span>
+                    <span>Correlation Confidence</span>
                     <b>{formatPercent(linkInfo.confidence)}</b>
                   </div>
                 )}

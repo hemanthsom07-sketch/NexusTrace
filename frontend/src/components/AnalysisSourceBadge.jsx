@@ -17,6 +17,7 @@ export default function AnalysisSourceBadge({
   if (!analysisSource) return null
 
   const isSample = analysisSource.type === 'sample'
+  const isRestored = analysisSource.type === 'restored'
   const validation = analysisSource.validation
 
   const networkCount = validation?.network_records ?? runStats?.events_ingested ?? null
@@ -35,7 +36,7 @@ export default function AnalysisSourceBadge({
         <Database size={14} className="badge-icon" />
         <div>
           <div className="analysis-source-label">Current Analysis</div>
-          <div className="analysis-source-value">{isSample ? 'Built-in Sample Dataset' : 'Uploaded Dataset'}</div>
+          <div className="analysis-source-value">{isSample ? 'Built-in Sample Dataset' : isRestored ? 'Current Backend Analysis' : 'Uploaded Dataset'}</div>
           {analyzedLabel && <div className="analysis-source-time">Analyzed on {analyzedLabel}</div>}
         </div>
       </div>

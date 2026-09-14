@@ -21,6 +21,10 @@ export default function GraphLegend() {
           <span className="legend-line" style={{ backgroundColor: EDGE_TYPE_META.input.color }} />
           <span>SENT_TO</span>
         </div>
+        <div className="legend-item" title={GLOSSARY.OUTPUT_TO || 'Transaction output to a wallet.'}>
+          <span className="legend-line" style={{ backgroundColor: EDGE_TYPE_META.output.color }} />
+          <span>OUTPUT_TO</span>
+        </div>
         <div className="legend-item" title={GLOSSARY.CORRELATED_WITH}>
           <span className="legend-line" style={{ backgroundColor: EDGE_TYPE_META.broadcast.color }} />
           <span>CORRELATED_WITH</span>

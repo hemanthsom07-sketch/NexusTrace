@@ -2097,3 +2097,18 @@ input::placeholder { color: var(--text-dim); }
   .investigate-columns { grid-template-columns: 320px minmax(500px, 1fr) 360px; }
 }
 .geo-ip-source { margin-top: 2px; font-size: 10px; color: var(--text-faint); font-family: var(--font-mono); }
+
+/* Entity-cluster evidence block */
+.cluster-card {
+  border: 1px solid var(--border-subtle, rgba(148,163,184,0.14));
+  border-radius: 10px;
+  padding: 11px 12px;
+  background: rgba(15,23,42,0.42);
+}
+.cluster-card-top { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.cluster-card-top strong { font-family: var(--font-mono); font-size: 11px; }
+.cluster-card-top span { font-size: 10px; color: var(--text-muted); }
+.cluster-card p { margin: 8px 0; color: var(--text-muted); font-size: 11px; line-height: 1.45; }
+.cluster-wallets { display:flex; flex-wrap:wrap; gap:5px; }
+.cluster-wallet { padding: 4px 7px; border-radius: 6px; background: rgba(99,102,241,0.10); border:1px solid rgba(99,102,241,0.22); color: var(--text-primary); font-family:var(--font-mono); font-size:9px; }
+.cluster-associated { margin-top:8px; color:var(--text-faint); font-size:9px; line-height:1.4; }

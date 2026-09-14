@@ -3,8 +3,14 @@ import os
 
 from app.config import GEOIP_DIR
 
-_CITY_MMDB_PATH = os.path.join(GEOIP_DIR, "GeoLite2-City.mmdb")
-_ASN_MMDB_PATH = os.path.join(GEOIP_DIR, "GeoLite2-ASN.mmdb")
+_CITY_MMDB_CANDIDATES = [
+    os.path.join(GEOIP_DIR, "GeoLite2-City.mmdb"),
+    os.path.join(GEOIP_DIR, "dbip-city-lite.mmdb"),
+]
+_ASN_MMDB_CANDIDATES = [
+    os.path.join(GEOIP_DIR, "GeoLite2-ASN.mmdb"),
+    os.path.join(GEOIP_DIR, "dbip-asn-lite.mmdb"),
+]
 
 _city_reader = None
 _city_reader_load_attempted = False
@@ -47,11 +53,12 @@ def _get_city_reader():
     if _city_reader_load_attempted:
         return _city_reader
     _city_reader_load_attempted = True
-    if not os.path.exists(_CITY_MMDB_PATH):
+    path = next((p for p in _CITY_MMDB_CANDIDATES if os.path.exists(p)), None)
+    if not path:
         return None
     try:
         import geoip2.database
-        _city_reader = geoip2.database.Reader(_CITY_MMDB_PATH)
+        _city_reader = geoip2.database.Reader(path)
     except Exception:
         _city_reader = None
     return _city_reader
@@ -62,11 +69,12 @@ def _get_asn_reader():
     if _asn_reader_load_attempted:
         return _asn_reader
     _asn_reader_load_attempted = True
-    if not os.path.exists(_ASN_MMDB_PATH):
+    path = next((p for p in _ASN_MMDB_CANDIDATES if os.path.exists(p)), None)
+    if not path:
         return None
     try:
         import geoip2.database
-        _asn_reader = geoip2.database.Reader(_ASN_MMDB_PATH)
+        _asn_reader = geoip2.database.Reader(path)
     except Exception:
         _asn_reader = None
     return _asn_reader
@@ -114,6 +122,8 @@ def lookup_ip(ip: str) -> dict:
 
     city_reader = _get_city_reader()
     asn_reader = _get_asn_reader()
+    city_source = "DB-IP Lite (offline MMDB)" if any(os.path.basename(p).startswith("dbip-") and "city" in os.path.basename(p) for p in _CITY_MMDB_CANDIDATES if os.path.exists(p)) else "Offline GeoIP MMDB"
+    asn_source = "DB-IP Lite (offline MMDB)" if any(os.path.basename(p).startswith("dbip-") and "asn" in os.path.basename(p) for p in _ASN_MMDB_CANDIDATES if os.path.exists(p)) else "Offline ASN MMDB"
     resolved_any = False
 
     if city_reader is not None:
@@ -125,7 +135,7 @@ def lookup_ip(ip: str) -> dict:
                 "city": response.city.name,
                 "latitude": response.location.latitude,
                 "longitude": response.location.longitude,
-                "source": "Offline GeoLite2-City",
+                "source": city_source,
             })
             resolved_any = True
         except Exception:
@@ -137,7 +147,7 @@ def lookup_ip(ip: str) -> dict:
             result.update({
                 "asn": f"AS{asn_response.autonomous_system_number}" if asn_response.autonomous_system_number else None,
                 "org": asn_response.autonomous_system_organization,
-                "source": result.get("source") or "Offline GeoLite2-ASN",
+                "source": result.get("source") or asn_source,
             })
             resolved_any = True
         except Exception:
@@ -159,5 +169,5 @@ def lookup_ip(ip: str) -> dict:
         })
         return result
 
-    result["status"] = "No GeoIP record available -- configure GeoLite2 or use a known prototype profile"
+    result["status"] = "No GeoIP record available -- configure an offline MMDB database or use a known prototype profile"
     return result

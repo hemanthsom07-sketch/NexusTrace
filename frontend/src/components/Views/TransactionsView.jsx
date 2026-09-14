@@ -41,7 +41,7 @@ export default function TransactionsView({
                 <th>BTC Amount</th>
                 <th>Fee</th>
                 <th>Correlated IP</th>
-                <th>Confidence</th>
+                <th>Correlation Confidence</th>
               </tr>
             </thead>
 
