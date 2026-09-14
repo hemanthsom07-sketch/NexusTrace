@@ -69,7 +69,7 @@ export function buildReportHtml({
     ;(tx.correlation_evidence || []).forEach((ev) => {
       if (tx.timestamp) {
         timelineEvents.push({
-          ts: tx.timestamp - ev.time_delta_seconds,
+          ts: ev.network_timestamp ?? null,
           text: `Network observation ${escapeHtml(ev.ip)} correlated with ${escapeHtml(tx.txid)} (confidence ${formatPercent(ev.confidence)}, Δt ${escapeHtml(ev.time_delta_seconds)}s)`,
         })
       }

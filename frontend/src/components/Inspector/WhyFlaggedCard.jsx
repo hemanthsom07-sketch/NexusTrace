@@ -8,7 +8,7 @@ export default function WhyFlaggedCard({ reasons = [] }) {
     <div className="why-flagged-card">
       <div className="why-flagged-header">
         <AlertTriangle size={20} />
-        <h3>Explainable AI Risk Factors</h3>
+        <h3>Anomaly Signals</h3>
       </div>
 
       <div className="risk-factors">

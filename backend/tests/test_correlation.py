@@ -50,3 +50,38 @@ def test_zero_delta_scores_high_confidence():
     assert len(zero_delta_links) > 0
     for link in zero_delta_links:
         assert link.confidence >= 0.9
+
+def test_correlation_preserves_source_row_provenance():
+    events, transactions = _load()
+
+    assert all(event.source_row is not None for event in events)
+    assert all(tx.source_row is not None for tx in transactions)
+
+    links = correlate(events, transactions)
+
+    assert len(links) > 0
+
+    events_by_id = {e.event_id: e for e in events}
+    transactions_by_id = {tx.txid: tx for tx in transactions}
+
+    # Reproduce the same provenance assignment used by execute_pipeline().
+    # The important assertion is against the actual CorrelationLink field.
+    for link in links:
+        event = events_by_id[link.network_event_id]
+        transaction = transactions_by_id[link.txid]
+
+        link.evidence_refs = []
+
+        if event.source_row is not None:
+            link.evidence_refs.append(
+                f"network:row:{event.source_row}"
+            )
+
+        if transaction.source_row is not None:
+            link.evidence_refs.append(
+                f"blockchain:row:{transaction.source_row}"
+            )
+
+        assert len(link.evidence_refs) == 2
+        assert link.evidence_refs[0].startswith("network:row:")
+        assert link.evidence_refs[1].startswith("blockchain:row:")

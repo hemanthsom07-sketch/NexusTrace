@@ -48,29 +48,89 @@ def _fields_present(rows: list[dict]) -> set:
 
 
 def _validate_dataset(raw_network: list[dict], raw_tx: list[dict]) -> dict:
-    """Real, computed validation summary for the upload UI -- record counts,
-    which required fields were actually detected, and how many TXIDs the two
-    sides share (informational only -- this does NOT feed the correlation
-    engine, which still matches on timestamp proximity as before)."""
+    """Validate both dataset structure and actual row parseability.
+
+    Header/field presence alone is not enough: a file can contain every
+    required column while all of its records are malformed. Validation
+    therefore runs the same normalizers used by execute_pipeline() and
+    requires at least one successfully parsed network event and one
+    successfully parsed blockchain transaction.
+    """
     network_fields = _fields_present(raw_network)
     tx_fields = _fields_present(raw_tx)
 
-    missing_network = [f for f in REQUIRED_NETWORK_FIELDS if f not in network_fields]
-    missing_blockchain = [f for f in REQUIRED_BLOCKCHAIN_FIELDS if f not in tx_fields]
+    missing_network = [
+        f for f in REQUIRED_NETWORK_FIELDS
+        if f not in network_fields
+    ]
 
-    network_txids = {row.get("txid") for row in raw_network if row.get("txid")}
-    tx_txids = {row.get("txid") for row in raw_tx if row.get("txid")}
-    matching_txids = len(network_txids & tx_txids) if network_txids and tx_txids else None
+    missing_blockchain = [
+        f for f in REQUIRED_BLOCKCHAIN_FIELDS
+        if f not in tx_fields
+    ]
+
+    network_txids = {
+        str(row.get("txid")).strip()
+        for row in raw_network
+        if row.get("txid")
+    }
+
+    tx_txids = {
+        str(row.get("txid")).strip()
+        for row in raw_tx
+        if row.get("txid")
+    }
+
+    matching_txids = (
+        len(network_txids & tx_txids)
+        if network_txids and tx_txids
+        else None
+    )
+
+    # Use the exact same normalizers as the real pipeline so validation
+    # cannot report success for data that the pipeline itself cannot ingest.
+    parsed_network, skipped_network = normalize_network_events(raw_network)
+    parsed_transactions, skipped_transactions = normalize_transactions(raw_tx)
+
+    network_parseable = len(parsed_network)
+    blockchain_parseable = len(parsed_transactions)
+
+    structurally_valid = (
+        bool(raw_network)
+        and bool(raw_tx)
+        and not missing_network
+        and not missing_blockchain
+    )
+
+    parseable = (
+        network_parseable > 0
+        and blockchain_parseable > 0
+    )
+
+    valid = structurally_valid and parseable
 
     return {
-        "valid": bool(raw_network) and bool(raw_tx) and not missing_network and not missing_blockchain,
+        "valid": valid,
+
         "network_records": len(raw_network),
         "blockchain_records": len(raw_tx),
+
+        "network_parseable_records": network_parseable,
+        "blockchain_parseable_records": blockchain_parseable,
+
+        "network_unparseable_records": len(skipped_network),
+        "blockchain_unparseable_records": len(skipped_transactions),
+
         "matching_txids": matching_txids,
+
         "detected_network_fields": sorted(network_fields),
         "detected_blockchain_fields": sorted(tx_fields),
+
         "missing_network_fields": missing_network,
         "missing_blockchain_fields": missing_blockchain,
+
+        "network_validation_errors": skipped_network[:20],
+        "blockchain_validation_errors": skipped_transactions[:20],
     }
 
 
@@ -114,80 +174,206 @@ def _split_merged_rows(rows: list[dict]) -> tuple[list[dict], list[dict]]:
 
 def execute_pipeline(raw_network: list[dict], raw_tx: list[dict]):
     db.init_db()
+
     events, skipped_events = normalize_network_events(raw_network)
     transactions, skipped_tx = normalize_transactions(raw_tx)
+
     links = correlate(events, transactions)
+
     events_by_id = {e.event_id: e for e in events}
+    tx_by_id = {tx.txid: tx for tx in transactions}
+
     links = score_links(links, events_by_id)
+
+    # Preserve source-row provenance directly on every correlation link.
+    # This allows the correlation object itself to point back to the
+    # original network and blockchain dataset rows.
+    for link in links:
+        ev = events_by_id.get(link.network_event_id)
+        tx = tx_by_id.get(link.txid)
+
+        link.evidence_refs = []
+
+        if ev and ev.source_row is not None:
+            link.evidence_refs.append(
+                f"network:row:{ev.source_row}"
+            )
+
+        if tx and tx.source_row is not None:
+            link.evidence_refs.append(
+                f"blockchain:row:{tx.source_row}"
+            )
+
     g = build_graph(events, transactions, links)
+
     feature_df = extract_features(transactions, g)
     scored_df = score_anomalies(feature_df)
     reasons = generate_reasons(scored_df)
 
+    # Wallet -> transaction relationships.
     tx_by_wallet = {}
+
     for tx in transactions:
         for addr in tx.input_addresses + tx.output_addresses:
             tx_by_wallet.setdefault(addr, set()).add(tx.txid)
 
+    # Wallet -> observed network IP relationships.
     ip_by_wallet = {}
+
     for link in links:
         ev = events_by_id.get(link.network_event_id)
-        tx = next((t for t in transactions if t.txid == link.txid), None)
+        tx = tx_by_id.get(link.txid)
+
         if ev and tx:
             for addr in tx.input_addresses + tx.output_addresses:
                 ip_by_wallet.setdefault(addr, set()).add(ev.src_ip)
 
-    # Entity clustering is a first-class pipeline artifact, not dead code.
-    # Common-input ownership is a forensic heuristic (not ML) and is surfaced
-    # separately so judges can see exactly how entity grouping was derived.
+    # Entity clustering is a forensic heuristic, not an ML model.
     clusters = perform_common_input_clustering(transactions)
+
     cluster_records = []
     cluster_by_wallet = {}
+
     for cluster in clusters:
         record = cluster.to_dict()
+
         record["associated_ips"] = sorted({
-            ip for wallet in cluster.wallets for ip in ip_by_wallet.get(wallet, set())
+            ip
+            for wallet in cluster.wallets
+            for ip in ip_by_wallet.get(wallet, set())
         })
+
         cluster_records.append(record)
+
         for wallet in cluster.wallets:
             cluster_by_wallet[wallet] = record
 
+    # Generate investigation leads.
     leads = []
     wallet_risk = {}
+
     for _, row in scored_df.iterrows():
         wallet = row["wallet"]
-        anomaly_score = round(float(row["anomaly_score"]), 4)
+
+        anomaly_score = round(
+            float(row["anomaly_score"]),
+            4,
+        )
+
         severity = severity_for(row["anomaly_score"])
-        wallet_risk[wallet] = {"anomaly_score": anomaly_score, "severity": severity}
+
+        wallet_risk[wallet] = {
+            "anomaly_score": anomaly_score,
+            "severity": severity,
+        }
+
         leads.append({
-            "wallet": wallet, "anomaly_score": anomaly_score, "severity": severity,
+            "wallet": wallet,
+            "anomaly_score": anomaly_score,
+            "severity": severity,
             "reasons": reasons.get(wallet, []),
-            "related_txids": sorted(tx_by_wallet.get(wallet, [])),
-            "related_ips": sorted(ip_by_wallet.get(wallet, [])),
-            "feature_snapshot": {k: v for k, v in row.items() if k not in ("wallet", "raw_score", "anomaly_score")},
-            "cluster_id": cluster_by_wallet.get(wallet, {}).get("cluster_id"),
+            "related_txids": sorted(
+                tx_by_wallet.get(wallet, [])
+            ),
+            "related_ips": sorted(
+                ip_by_wallet.get(wallet, [])
+            ),
+            "feature_snapshot": {
+                k: v
+                for k, v in row.items()
+                if k not in (
+                    "wallet",
+                    "raw_score",
+                    "anomaly_score",
+                )
+            },
+            "cluster_id": cluster_by_wallet.get(
+                wallet,
+                {},
+            ).get("cluster_id"),
         })
 
+    # Cross-layer evidence indexed by transaction.
     evidence_by_txid = {}
+
     for link in links:
         ev = events_by_id.get(link.network_event_id)
-        if ev:
-            evidence_by_txid.setdefault(link.txid, []).append({
-                "ip": ev.src_ip, "port": ev.src_port, "time_delta_seconds": link.time_delta_seconds,
-                "confidence": link.confidence, "evidence": link.evidence,
-            })
+        tx = tx_by_id.get(link.txid)
 
+        if not ev:
+            continue
+
+        evidence_by_txid.setdefault(
+            link.txid,
+            [],
+        ).append({
+            "ip": ev.src_ip,
+            "port": ev.src_port,
+
+            # Preserve the actual timestamps from both datasets.
+            "network_timestamp": ev.timestamp,
+            "transaction_timestamp": (
+                tx.timestamp if tx else None
+            ),
+
+            # Preserve original source rows.
+            "network_source_row": ev.source_row,
+            "transaction_source_row": (
+                tx.source_row if tx else None
+            ),
+
+            "time_delta_seconds": link.time_delta_seconds,
+            "confidence": link.confidence,
+            "evidence": link.evidence,
+
+            # Use the provenance stored directly on the link.
+            "evidence_refs": list(link.evidence_refs),
+        })
+
+    # Save every ingested transaction, including transactions that may not
+    # have a network correlation.
     tx_records = []
+
     for tx in transactions:
-        tx_evidence = sorted(evidence_by_txid.get(tx.txid, []), key=lambda e: (e["confidence"] or 0.0), reverse=True)
-        primary = tx_evidence[0] if tx_evidence else None
+        tx_evidence = evidence_by_txid.get(tx.txid, [])
+
+        primary = (
+            max(
+                tx_evidence,
+                key=lambda item: item.get("confidence") or 0.0,
+            )
+            if tx_evidence
+            else None
+        )
+
         tx_records.append({
-            "txid": tx.txid, "timestamp": tx.timestamp, "input_addresses": tx.input_addresses,
-            "output_addresses": tx.output_addresses, "input_amounts": tx.input_amounts,
-            "output_amounts": tx.output_amounts, "fee": tx.fee, "script_type": tx.script_type,
-            "btc_amount": round(sum(tx.output_amounts), 8) if tx.output_amounts else 0.0,
-            "correlated_ip": primary["ip"] if primary else None,
-            "confidence": primary["confidence"] if primary else None,
+            "txid": tx.txid,
+            "timestamp": tx.timestamp,
+            "input_addresses": tx.input_addresses,
+            "output_addresses": tx.output_addresses,
+            "input_amounts": tx.input_amounts,
+            "output_amounts": tx.output_amounts,
+            "fee": tx.fee,
+            "script_type": tx.script_type,
+            "source_row": tx.source_row,
+
+            "btc_amount": round(
+                sum(tx.output_amounts),
+                8,
+            ) if tx.output_amounts else 0.0,
+
+            "correlated_ip": (
+                primary["ip"]
+                if primary
+                else None
+            ),
+
+            "confidence": (
+                primary["confidence"]
+                if primary
+                else None
+            ),
+
             "correlation_evidence": tx_evidence,
         })
 
@@ -198,9 +384,12 @@ def execute_pipeline(raw_network: list[dict], raw_tx: list[dict]):
 
     return {
         "status": "ok",
-        "events_ingested": len(events), "events_skipped": len(skipped_events),
-        "transactions_ingested": len(transactions), "transactions_skipped": len(skipped_tx),
-        "links_found": len(links), "leads_generated": len(leads),
+        "events_ingested": len(events),
+        "events_skipped": len(skipped_events),
+        "transactions_ingested": len(transactions),
+        "transactions_skipped": len(skipped_tx),
+        "links_found": len(links),
+        "leads_generated": len(leads),
         "clusters_generated": len(cluster_records),
     }
 

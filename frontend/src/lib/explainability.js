@@ -106,7 +106,7 @@ export function explainWallet(leads, wallet) {
 }
 
 /**
- * Dataset-level narrative for the Overview page's "AI Analysis Summary" --
+ * Dataset-level narrative for the Overview page's "Investigation Summary" --
  * built the same way, purely from the leads array already returned by the
  * backend for the current analysis session.
  */

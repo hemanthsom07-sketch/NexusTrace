@@ -1,9 +1,30 @@
-import React from 'react'
+import React, { useMemo } from 'react'
 import LeadList from '../LeadList'
 import GraphContainer from '../Graph/GraphContainer'
 import EntityInspector from '../Inspector/EntityInspector'
 import InvestigationTabs from '../Investigation/InvestigationTabs'
 import AnalysisSourceBadge from '../AnalysisSourceBadge'
+
+function buildEntityId(entity, selectedWallet) {
+  if (entity?.fullId) return entity.fullId
+
+  if (entity?.type && entity?.id) {
+    const prefix =
+      entity.type === 'transaction'
+        ? 'tx'
+        : entity.type === 'ip'
+          ? 'ip'
+          : 'wallet'
+
+    return `${prefix}:${entity.id}`
+  }
+
+  if (selectedWallet) {
+    return `wallet:${selectedWallet}`
+  }
+
+  return null
+}
 
 export default function InvestigateView({
   leads,
@@ -24,58 +45,87 @@ export default function InvestigateView({
   onGenerateReport,
   reportLoading,
 }) {
+  const activeEntityId = useMemo(
+    () => buildEntityId(selectedEntity, selectedWallet),
+    [selectedEntity, selectedWallet]
+  )
+
+  const activeWallet =
+    selectedEntity?.type === 'wallet'
+      ? selectedEntity.id
+      : selectedWallet || null
+
   return (
     <div className="investigate-view">
-      <AnalysisSourceBadge
-        analysisSource={analysisSource}
-        runStats={runStats}
-        leadsCount={leads?.length || 0}
-        analyzedAt={analyzedAt}
-        onGenerateReport={onGenerateReport}
-        reportLoading={reportLoading}
-      />
-
-      <div className="investigate-columns">
-        <aside className="investigate-leads">
-          <LeadList
-            leads={leads}
-            selectedWallet={selectedWallet}
-            onSelectWallet={onSelectWallet}
-          />
-        </aside>
-
-        <main className="investigate-graph">
-          <GraphContainer
-            graphData={graphData}
-            selectedEntityId={selectedEntity?.fullId}
-            onSelectEntity={onSelectEntity}
-            transactions={transactions}
-            loading={loadingGraph}
-          />
-        </main>
-
-        <aside className="investigate-inspector">
-          <EntityInspector
-            selectedEntity={selectedEntity}
-            leads={leads}
-            transactions={transactions}
-            clusters={clusters}
-            leadDetail={leadDetail}
-            transactionDetail={transactionDetail}
-            ipDetail={ipDetail}
-            onSelectEntity={onSelectEntity}
-          />
-        </aside>
+      <div className="investigation-header-stack">
+        <AnalysisSourceBadge
+          analysisSource={analysisSource}
+          runStats={runStats}
+          leads={leads}
+          selectedEntity={selectedEntity}
+          selectedWallet={selectedWallet}
+          transactions={transactions}
+          analyzedAt={analyzedAt}
+          onGenerateReport={onGenerateReport}
+          reportLoading={reportLoading}
+        />
       </div>
 
-      <InvestigationTabs
-        selectedEntity={selectedEntity}
-        leadDetail={leadDetail}
-        transactionDetail={transactionDetail}
-        ipDetail={ipDetail}
-        transactions={transactions}
-        onSelectEntity={onSelectEntity}
-      />
+      <section className="investigation-primary-workspace">
+        <div className="investigation-primary-grid">
+          <div className="investigation-queue-panel">
+            <LeadList
+              leads={leads}
+              selectedWallet={activeWallet}
+              onSelectWallet={onSelectWallet}
+            />
+          </div>
+
+          <div className="investigation-graph-panel">
+            <GraphContainer
+              graphData={graphData}
+              selectedEntityId={activeEntityId}
+              onSelectEntity={onSelectEntity}
+              transactions={transactions}
+              loading={loadingGraph}
+            />
+          </div>
+
+          <div className="investigation-inspector-panel">
+            <EntityInspector
+              selectedEntity={selectedEntity}
+              selectedWallet={activeWallet}
+              leadDetail={leadDetail}
+              transactionDetail={transactionDetail}
+              ipDetail={ipDetail}
+              clusters={clusters}
+              transactions={transactions}
+              onSelectEntity={onSelectEntity}
+            />
+          </div>
+        </div>
+      </section>
+
+      <section className="investigation-lower-workspace">
+        <InvestigationTabs
+          wallet={activeWallet}
+          selectedEntity={selectedEntity}
+          leadDetail={leadDetail}
+          transactionDetail={transactionDetail}
+          ipDetail={ipDetail}
+          transactions={transactions}
+          clusters={clusters}
+          onSelectTx={(txid) =>
+            onSelectEntity({
+              type: 'transaction',
+              id: txid,
+              fullId: `tx:${txid}`,
+            })
+          }
+          onSelectEntity={onSelectEntity}
+          onSelectWallet={onSelectWallet}
+        />
+      </section>
     </div>
   )
 }
